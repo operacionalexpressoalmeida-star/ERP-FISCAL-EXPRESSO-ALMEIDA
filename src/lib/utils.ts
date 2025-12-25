@@ -1,4 +1,4 @@
-/* General utility functions (exposes cn) */
+/* General utility functions (exposes cn, formatCurrency) */
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -11,4 +11,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Add any other utility functions here
+export function formatCurrency(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value)
+}
+
+export function generateId() {
+  return Math.random().toString(36).substring(2, 9)
+}
