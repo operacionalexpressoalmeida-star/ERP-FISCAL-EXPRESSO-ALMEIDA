@@ -15,7 +15,13 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
-import { FileText, DollarSign, Users, ArrowUpRight } from 'lucide-react'
+import {
+  FileText,
+  DollarSign,
+  Users,
+  PlusCircle,
+  FileBarChart,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 
