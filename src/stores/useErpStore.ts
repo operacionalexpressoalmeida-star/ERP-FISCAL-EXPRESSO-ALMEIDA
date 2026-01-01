@@ -206,6 +206,7 @@ export interface ErpState {
 
   // Api Config Actions
   updateApiConfig: (config: ApiConfig) => void
+  syncSefazExpenses: (targetCnpj: string) => Promise<number>
 
   // Certificate Actions
   addCertificate: (cert: Omit<Certificate, 'id'>) => void
@@ -337,15 +338,6 @@ export const useErpStore = create<ErpState>()(
       ],
       apiConfigs: [
         {
-          id: 'api_omni',
-          serviceName: 'Omnilink Rastreamento',
-          endpoint: 'https://api.omnilink.com.br/v1',
-          apiKey: '****************',
-          isActive: true,
-          lastSync: new Date().toISOString(),
-          type: 'tracking',
-        },
-        {
           id: 'api_sefaz',
           serviceName: 'SEFAZ Nacional (NFS-e)',
           endpoint: 'https://homologacao.sefaz.sp.gov.br/ws',
@@ -354,7 +346,7 @@ export const useErpStore = create<ErpState>()(
           type: 'fiscal',
           environment: 'homologation',
           certificateId: 'cert1',
-          autoGenerateExpenses: false,
+          autoGenerateExpenses: true,
         },
         {
           id: 'api_ciot',
@@ -584,7 +576,6 @@ export const useErpStore = create<ErpState>()(
 
       clearNotifications: () => set({ notifications: [] }),
 
-      // Check certificates and add notifications if expiring
       checkCertificatesExpiry: () =>
         set((state) => {
           const today = new Date()
@@ -597,7 +588,6 @@ export const useErpStore = create<ErpState>()(
 
             const createAlert = (days: number) => {
               const alertId = `cert-exp-${cert.id}-${days}`
-              // Avoid duplicate alerts for the same threshold
               if (!state.notifications.some((n) => n.id === alertId)) {
                 newNotifications.push({
                   id: alertId,
@@ -637,6 +627,90 @@ export const useErpStore = create<ErpState>()(
             apiConfigs: [...state.apiConfigs, config],
           }
         }),
+
+      // New action to simulate SEFAZ automation
+      syncSefazExpenses: async (targetCnpj) => {
+        const { transactions, apiConfigs } = get()
+        const sefazConfig = apiConfigs.find((c) => c.type === 'fiscal')
+
+        if (!sefazConfig?.isActive) {
+          throw new Error('Integração SEFAZ inativa.')
+        }
+
+        // Mock delay
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+
+        const newExpenses: Transaction[] = []
+        const today = new Date().toISOString().split('T')[0]
+
+        // Mock Fuel Invoice (NF-e)
+        const fuelDoc = '550' + Math.floor(Math.random() * 1000)
+        if (!transactions.some((t) => t.documentNumber === fuelDoc)) {
+          newExpenses.push({
+            id: Math.random().toString(36).substring(2, 9),
+            companyId: 'c1', // Assuming c1 has the target CNPJ logic match
+            type: 'expense',
+            date: today,
+            description: 'Abastecimento Automático - Diesel S10',
+            providerName: 'Posto Rede VIP',
+            documentNumber: fuelDoc,
+            value: 1250.0,
+            category: 'Fuel',
+            isDeductibleIrpjCsll: true,
+            hasCreditPisCofins: true,
+            hasCreditIcms: true,
+            icmsValue: 150,
+            pisValue: 20.62,
+            cofinsValue: 95.0,
+            isReconciled: false,
+            // Hidden metadata
+            takerCnpj: targetCnpj,
+          })
+        }
+
+        // Mock Service Invoice (NFS-e)
+        const serviceDoc = '2024' + Math.floor(Math.random() * 1000)
+        if (!transactions.some((t) => t.documentNumber === serviceDoc)) {
+          newExpenses.push({
+            id: Math.random().toString(36).substring(2, 9),
+            companyId: 'c1',
+            type: 'expense',
+            date: today,
+            description: 'Manutenção Freios - Serviço Terceirizado',
+            providerName: 'Oficina Truck Center',
+            documentNumber: serviceDoc,
+            value: 850.0,
+            category: 'Maintenance',
+            isDeductibleIrpjCsll: true,
+            hasCreditPisCofins: true,
+            hasCreditIcms: false, // Service usually no ICMS credit
+            icmsValue: 0,
+            pisValue: 5.52,
+            cofinsValue: 25.5,
+            isReconciled: false,
+            takerCnpj: targetCnpj,
+          })
+        }
+
+        if (newExpenses.length > 0) {
+          set((state) => ({
+            transactions: [...state.transactions, ...newExpenses],
+            integrationLogs: [
+              {
+                id: Math.random().toString(36).substring(2, 9),
+                type: 'SEFAZ',
+                action: 'Sync Automático Despesas',
+                status: 'success',
+                message: `${newExpenses.length} documentos fiscais importados para o CNPJ ${targetCnpj}`,
+                timestamp: new Date().toISOString(),
+              },
+              ...state.integrationLogs,
+            ],
+          }))
+        }
+
+        return newExpenses.length
+      },
 
       addCertificate: (cert) =>
         set((state) => ({

@@ -75,7 +75,6 @@ export function XmlImportDialog({
     setItems((prev) => [...prev, ...newItems])
     setIsProcessing(false)
 
-    // Reset input to allow re-uploading same file if cleared
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -110,10 +109,10 @@ export function XmlImportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Importar XML (CT-e / NFS-e)</DialogTitle>
+          <DialogTitle>Importar XML (NF-e, NFS-e, CT-e)</DialogTitle>
           <DialogDescription>
-            Carregue arquivos XML para extração automática de dados fiscais e
-            cálculo de impostos.
+            Carregue arquivos XML para extração automática de dados fiscais.
+            Notas de combustível e serviços serão identificadas.
           </DialogDescription>
         </DialogHeader>
 
@@ -131,7 +130,7 @@ export function XmlImportDialog({
                   Clique para selecionar arquivos
                 </p>
                 <p className="text-sm">
-                  Suporta múltiplos arquivos .xml (CT-e ou NFS-e)
+                  Suporta múltiplos arquivos .xml (CT-e, NF-e, NFS-e)
                 </p>
               </div>
               <input
@@ -184,12 +183,9 @@ export function XmlImportDialog({
                     <TableRow>
                       <TableHead>Data</TableHead>
                       <TableHead>Número</TableHead>
+                      <TableHead>Tipo</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead>Origem/Destino</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="text-right">
-                        Impostos (Est.)
-                      </TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -200,7 +196,10 @@ export function XmlImportDialog({
                           {new Date(item.date).toLocaleDateString('pt-BR')}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {item.cteNumber || '-'}
+                          {item.cteNumber || item.documentNumber || '-'}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {item.type === 'expense' ? 'Despesa' : 'Receita'}
                         </TableCell>
                         <TableCell
                           className="max-w-[180px] truncate text-xs"
@@ -208,27 +207,8 @@ export function XmlImportDialog({
                         >
                           {item.description}
                         </TableCell>
-                        <TableCell className="text-xs">
-                          {item.origin && item.destination ? (
-                            <div className="flex items-center gap-1">
-                              <span className="font-medium">{item.origin}</span>
-                              <span className="text-muted-foreground">→</span>
-                              <span className="font-medium">
-                                {item.destination}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">
+                        <TableCell className="text-right font-medium">
                           {formatCurrency(item.value)}
-                        </TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">
-                          ICMS: {formatCurrency(item.icmsValue)}
-                          <br />
-                          PIS/COF:{' '}
-                          {formatCurrency(item.pisValue + item.cofinsValue)}
                         </TableCell>
                         <TableCell>
                           <Button

@@ -23,6 +23,8 @@ import {
   Truck,
   Loader2,
   FileText,
+  RefreshCw,
+  FileUp,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -65,6 +67,8 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
+import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
+import { ParsedFiscalDoc } from '@/lib/xml-parser'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -81,6 +85,7 @@ const expenseSchema = z.object({
 })
 
 const ITEMS_PER_PAGE = 10
+const TARGET_CNPJ = '49.069.638/0001-78'
 
 export default function ExpenseList() {
   const {
@@ -90,6 +95,7 @@ export default function ExpenseList() {
     updateTransaction,
     removeTransaction,
     addIntegrationLog,
+    syncSefazExpenses,
     companies,
     selectedCompanyId,
     userRole,
@@ -107,6 +113,8 @@ export default function ExpenseList() {
   const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE)
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isXmlImportOpen, setIsXmlImportOpen] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null)
   const [transactionToDelete, setTransactionToDelete] =
@@ -168,7 +176,6 @@ export default function ExpenseList() {
     const cofinsValue = values.hasCreditPisCofins ? values.value * 0.076 : 0
     const icmsValue = values.hasCreditIcms ? values.value * 0.12 : 0
 
-    // Handle the "no_contract" sentinel value to return undefined/empty
     const contractId =
       values.contractId && values.contractId !== 'no_contract'
         ? values.contractId
@@ -254,6 +261,66 @@ export default function ExpenseList() {
     }, 2000)
   }
 
+  const handleSyncSefaz = async () => {
+    try {
+      setIsSyncing(true)
+      const count = await syncSefazExpenses(TARGET_CNPJ)
+      if (count > 0) {
+        toast({
+          title: 'Sincronização Concluída',
+          description: `${count} novas despesas de combustível/serviço importadas automaticamente.`,
+        })
+      } else {
+        toast({
+          title: 'Tudo em Dia',
+          description: 'Não foram encontrados novos documentos na SEFAZ.',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Erro na Sincronização',
+        description: 'Falha ao comunicar com SEFAZ.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const handleXmlConfirm = (items: ParsedFiscalDoc[]) => {
+    let count = 0
+    items.forEach((item) => {
+      // Auto-categorize logic
+      let category = item.category || 'Other'
+      if (
+        item.description.toLowerCase().includes('diesel') ||
+        item.description.toLowerCase().includes('gasolina') ||
+        item.description.toLowerCase().includes('etanol')
+      ) {
+        category = 'Fuel'
+      } else if (
+        item.description.toLowerCase().includes('manutenção') ||
+        item.description.toLowerCase().includes('peça') ||
+        item.description.toLowerCase().includes('serviço')
+      ) {
+        category = 'Maintenance'
+      }
+
+      addTransaction({
+        ...item,
+        companyId:
+          selectedCompanyId !== 'consolidated' ? selectedCompanyId : 'c1', // Default or select
+        category,
+        isDeductibleIrpjCsll: true,
+      })
+      count++
+    })
+    toast({
+      title: 'Importação Concluída',
+      description: `${count} registros adicionados.`,
+    })
+  }
+
   const openEditDialog = (t: Transaction) => {
     setSelectedTransaction(t)
     setIsDialogOpen(true)
@@ -271,7 +338,7 @@ export default function ExpenseList() {
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
             Gestão de Despesas
@@ -281,12 +348,37 @@ export default function ExpenseList() {
           </p>
         </div>
         {userRole === 'admin' && (
-          <Button onClick={openNewDialog} variant="destructive">
-            <Plus className="mr-2 h-4 w-4" /> Nova Despesa
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleSyncSefaz}
+              disabled={isSyncing}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`}
+              />
+              Sincronizar SEFAZ
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setIsXmlImportOpen(true)}
+            >
+              <FileUp className="mr-2 h-4 w-4" /> Importar XML
+            </Button>
+            <Button onClick={openNewDialog} variant="destructive">
+              <Plus className="mr-2 h-4 w-4" /> Nova Despesa
+            </Button>
+          </div>
         )}
       </div>
 
+      <XmlImportDialog
+        open={isXmlImportOpen}
+        onOpenChange={setIsXmlImportOpen}
+        onConfirm={handleXmlConfirm}
+      />
+
+      {/* Dialog and AlertDialog ... (Same as before, simplified for brevity but includes logic) */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -365,6 +457,7 @@ export default function ExpenseList() {
                 />
               </div>
 
+              {/* ... Rest of form similar to previous, ensured no Tracking input ... */}
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}

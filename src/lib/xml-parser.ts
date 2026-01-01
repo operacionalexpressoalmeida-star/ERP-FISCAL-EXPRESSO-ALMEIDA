@@ -2,6 +2,8 @@ import { Transaction } from '@/stores/useErpStore'
 
 export interface ParsedFiscalDoc extends Omit<Transaction, 'id' | 'companyId'> {
   rawXml?: string
+  recipientCnpj?: string
+  providerCnpj?: string
 }
 
 export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
@@ -13,27 +15,66 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     throw new Error('Arquivo XML inválido ou corrompido.')
   }
 
+  const getValue = (parent: Element | Document, tag: string) =>
+    parent.getElementsByTagName(tag)[0]?.textContent || ''
+
+  // Try NF-e (Nota Fiscal Eletrônica) - e.g. Fuel, Products
+  const infNFe = xmlDoc.getElementsByTagName('infNFe')[0]
+  if (infNFe) {
+    const ide = infNFe.getElementsByTagName('ide')[0]
+    const emit = infNFe.getElementsByTagName('emit')[0]
+    const dest = infNFe.getElementsByTagName('dest')[0]
+    const total = infNFe.getElementsByTagName('total')[0]
+
+    const nNF = getValue(ide, 'nNF')
+    const dhEmi = getValue(ide, 'dhEmi')
+    const vNF = parseFloat(getValue(total, 'vNF') || '0')
+    const xNomeEmit = getValue(emit, 'xNome')
+    const cnpjEmit = getValue(emit, 'CNPJ')
+    const cnpjDest = getValue(dest, 'CNPJ')
+
+    // Extract first product for description
+    const det = infNFe.getElementsByTagName('det')[0]
+    const prod = det?.getElementsByTagName('prod')[0]
+    const xProd = getValue(prod!, 'xProd')
+
+    return {
+      type: 'expense', // Assume expense for NF-e (incoming)
+      date: dhEmi
+        ? dhEmi.split('T')[0]
+        : new Date().toISOString().split('T')[0],
+      value: vNF,
+      description: xProd ? `NF-e ${nNF} - ${xProd}` : `NF-e ${nNF} - Compra`,
+      providerName: xNomeEmit,
+      providerCnpj: cnpjEmit,
+      recipientCnpj: cnpjDest,
+      documentNumber: nNF,
+      category: 'Other', // Default
+      icmsValue: 0,
+      pisValue: 0,
+      cofinsValue: 0,
+    }
+  }
+
   // Try CT-e (Conhecimento de Transporte Eletrônico)
-  // Structure: CTe > infCte > ide, emit, dest, vPrest, etc.
   const infCte = xmlDoc.getElementsByTagName('infCte')[0]
   if (infCte) {
-    const getValue = (tag: string) =>
-      infCte.getElementsByTagName(tag)[0]?.textContent || ''
+    const nCT = getValue(infCte, 'nCT')
+    const dhEmi = getValue(infCte, 'dhEmi')
+    const vTPrest = parseFloat(getValue(infCte, 'vTPrest') || '0')
+    const ide = infCte.getElementsByTagName('ide')[0]
+    const ufIni = getValue(ide, 'UFIni')
+    const ufFim = getValue(ide, 'UFFim')
+    const dest = infCte.getElementsByTagName('dest')[0]
+    const cnpjDest = getValue(dest!, 'CNPJ')
 
-    const nCT = getValue('nCT')
-    const dhEmi = getValue('dhEmi')
-    const vTPrest = parseFloat(getValue('vTPrest') || '0')
-    const ufIni = getValue('UFIni')
-    const ufFim = getValue('UFFim')
-
-    // Extracting basic description from observation or defaulting
-    const xObs = getValue('xObs')
+    const xObs = getValue(infCte, 'xObs')
     const description = xObs
       ? xObs.slice(0, 50)
       : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
 
     return {
-      type: 'revenue',
+      type: 'revenue', // Default to revenue for CT-e
       date: dhEmi
         ? dhEmi.split('T')[0]
         : new Date().toISOString().split('T')[0],
@@ -42,15 +83,14 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       origin: ufIni,
       destination: ufFim,
       description: description,
-      icmsValue: 0, // Will be calculated by the tax engine
+      recipientCnpj: cnpjDest,
+      icmsValue: 0,
       pisValue: 0,
       cofinsValue: 0,
     }
   }
 
   // Try NFS-e (Nota Fiscal de Serviço Eletrônica)
-  // NFS-e layouts vary significantly (ABRASF vs others). We try to find common tags.
-  // Common tags: ValorServicos, DataEmissao, Discriminacao, Numero
   const valorServicos = xmlDoc.getElementsByTagName('ValorServicos')[0]
   const dataEmissao = xmlDoc.getElementsByTagName('DataEmissao')[0]
 
@@ -61,9 +101,22 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       xmlDoc.getElementsByTagName('Discriminacao')[0]?.textContent || ''
     const numero = xmlDoc.getElementsByTagName('Numero')[0]?.textContent || ''
 
+    // Attempt to find Tomador CNPJ
+    const tomador = xmlDoc.getElementsByTagName('Tomador')[0]
+    const cpfCnpj = tomador?.getElementsByTagName('CpfCnpj')[0]
+    const cnpjTomador = getValue(cpfCnpj!, 'Cnpj')
+
+    // Attempt to find Prestador CNPJ
+    const prestador =
+      xmlDoc.getElementsByTagName('Prestador')[0] ||
+      xmlDoc.getElementsByTagName('PrestadorServico')[0]
+    const cpfCnpjPrestador = prestador?.getElementsByTagName('CpfCnpj')[0]
+    const cnpjPrestador = getValue(cpfCnpjPrestador!, 'Cnpj')
+    const razaoSocialPrestador = getValue(prestador!, 'RazaoSocial')
+
     if (vServ > 0) {
       return {
-        type: 'revenue',
+        type: 'revenue', // Default, logic might change to expense based on CNPJ match in UI
         date: dEmi
           ? dEmi.split('T')[0]
           : new Date().toISOString().split('T')[0],
@@ -72,8 +125,10 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
           ? discriminacao.slice(0, 100)
           : `Serviço NFS-e ${numero}`,
         cteNumber: numero, // Using cteNumber field to store NF Number
-        origin: '',
-        destination: '',
+        recipientCnpj: cnpjTomador,
+        providerCnpj: cnpjPrestador,
+        providerName: razaoSocialPrestador,
+        documentNumber: numero,
         icmsValue: 0,
         pisValue: 0,
         cofinsValue: 0,
@@ -82,6 +137,6 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
   }
 
   throw new Error(
-    'Formato de XML não reconhecido. Certifique-se de que é um CT-e ou NFS-e padrão.',
+    'Formato de XML não reconhecido. Certifique-se de que é um NF-e, CT-e ou NFS-e padrão.',
   )
 }
