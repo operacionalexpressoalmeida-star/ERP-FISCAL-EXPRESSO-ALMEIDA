@@ -14,6 +14,11 @@ import ExpenseList from './pages/operations/ExpenseList'
 import LalurPage from './pages/accounting/LalurPage'
 import TaxPage from './pages/accounting/TaxPage'
 import DrePage from './pages/reports/DrePage'
+import AssetList from './pages/assets/AssetList'
+import BankReconciliation from './pages/financial/BankReconciliation'
+import TaxReports from './pages/reports/TaxReports'
+import CustomDashboard from './pages/reports/CustomDashboard'
+import ApprovalsPage from './pages/admin/ApprovalsPage'
 
 const App = () => (
   <BrowserRouter
@@ -28,9 +33,20 @@ const App = () => (
           <Route path="/organization" element={<OrganizationList />} />
           <Route path="/operations/cte" element={<CTeList />} />
           <Route path="/operations/expenses" element={<ExpenseList />} />
+          <Route path="/assets" element={<AssetList />} />
+          <Route
+            path="/financial/reconciliation"
+            element={<BankReconciliation />}
+          />
           <Route path="/accounting/lalur" element={<LalurPage />} />
           <Route path="/accounting/taxes" element={<TaxPage />} />
           <Route path="/reports/dre" element={<DrePage />} />
+          <Route path="/reports/tax" element={<TaxReports />} />
+          <Route
+            path="/reports/custom-dashboard"
+            element={<CustomDashboard />}
+          />
+          <Route path="/admin/approvals" element={<ApprovalsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

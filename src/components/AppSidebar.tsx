@@ -20,6 +20,11 @@ import {
   Calculator,
   FileBarChart2,
   UserCircle,
+  Landmark,
+  Archive,
+  Printer,
+  PieChart,
+  CheckSquare,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -92,12 +97,23 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith('/assets')}
+                >
+                  <Link to="/assets">
+                    <Archive />
+                    <span>Ativos Imobilizados</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Operações</SidebarGroupLabel>
+          <SidebarGroupLabel>Operações & Financeiro</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
@@ -121,6 +137,19 @@ export function AppSidebar() {
                   <Link to="/operations/expenses">
                     <Receipt />
                     <span>Despesas</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith(
+                    '/financial/reconciliation',
+                  )}
+                >
+                  <Link to="/financial/reconciliation">
+                    <Landmark />
+                    <span>Conciliação Bancária</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -154,6 +183,14 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Relatórios</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -161,13 +198,58 @@ export function AppSidebar() {
                 >
                   <Link to="/reports/dre">
                     <FileBarChart2 />
-                    <span>Relatórios (DRE)</span>
+                    <span>DRE Gerencial</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith('/reports/tax')}
+                >
+                  <Link to="/reports/tax">
+                    <Printer />
+                    <span>Relatórios Fiscais</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith(
+                    '/reports/custom-dashboard',
+                  )}
+                >
+                  <Link to="/reports/custom-dashboard">
+                    <PieChart />
+                    <span>Dashboards</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {userRole === 'admin' && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administração</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname.startsWith('/admin/approvals')}
+                  >
+                    <Link to="/admin/approvals">
+                      <CheckSquare />
+                      <span>Aprovações</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

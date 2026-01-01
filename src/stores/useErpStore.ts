@@ -14,6 +14,39 @@ export interface Company {
   city: string
 }
 
+export interface Asset {
+  id: string
+  companyId: string
+  name: string
+  category: 'Vehicle' | 'Machinery' | 'Equipment' | 'Other'
+  acquisitionDate: string
+  originalValue: number
+  residualValue: number
+  depreciationRate: number // % per year
+  status: 'Active' | 'Sold' | 'WrittenOff'
+}
+
+export interface BankTransaction {
+  id: string
+  date: string
+  description: string
+  amount: number
+  type: 'credit' | 'debit'
+  isReconciled: boolean
+  reconciledTransactionId?: string
+}
+
+export interface ClosingPeriod {
+  id: string
+  companyId: string
+  month: number
+  year: number
+  status: 'pending' | 'approved' | 'rejected'
+  requestedBy: string
+  approvedBy?: string
+  approvedAt?: string
+}
+
 export interface Transaction {
   id: string
   companyId: string
@@ -21,20 +54,20 @@ export interface Transaction {
   date: string
   description: string
   value: number
-  // Revenue specific
   origin?: string
   destination?: string
   cteNumber?: string
-  // Expense specific
   category?: string
   isDeductibleIrpjCsll?: boolean
   hasCreditPisCofins?: boolean
   hasCreditIcms?: boolean
-  // Tax values (calculated or manual)
   icmsValue: number
   pisValue: number
   cofinsValue: number
   issValue?: number
+  // New fields
+  assetId?: string
+  isReconciled?: boolean
 }
 
 export interface LalurEntry {
@@ -50,6 +83,9 @@ export interface ErpState {
   companies: Company[]
   transactions: Transaction[]
   lalurEntries: LalurEntry[]
+  assets: Asset[]
+  bankTransactions: BankTransaction[]
+  closingPeriods: ClosingPeriod[]
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
@@ -69,9 +105,21 @@ export interface ErpState {
   updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
   removeLalurEntry: (id: string) => void
 
-  // Getters (Selectors usually used in components, but helpers here)
+  // New Actions
+  addAsset: (asset: Omit<Asset, 'id'>) => void
+  updateAsset: (id: string, data: Partial<Omit<Asset, 'id'>>) => void
+  removeAsset: (id: string) => void
+
+  importBankTransactions: (txs: Omit<BankTransaction, 'id'>[]) => void
+  reconcileTransaction: (bankTxId: string, sysTxId: string) => void
+
+  requestClosing: (closing: Omit<ClosingPeriod, 'id'>) => void
+  approveClosing: (id: string, approverName: string) => void
+  rejectClosing: (id: string) => void
+
   getFilteredTransactions: () => Transaction[]
   getFilteredLalurEntries: () => LalurEntry[]
+  getFilteredAssets: () => Asset[]
 }
 
 export const useErpStore = create<ErpState>()(
@@ -97,15 +145,6 @@ export const useErpStore = create<ErpState>()(
           state: 'PR',
           city: 'Curitiba',
         },
-        {
-          id: 'c3',
-          name: 'Expresso Almeida Filial Nordeste',
-          cnpj: '45.123.456/0003-40',
-          type: 'Branch',
-          parentId: 'c1',
-          state: 'BA',
-          city: 'Salvador',
-        },
       ],
       transactions: [
         {
@@ -118,9 +157,10 @@ export const useErpStore = create<ErpState>()(
           cteNumber: '5501',
           origin: 'SP',
           destination: 'PR',
-          icmsValue: 1440, // 12%
+          icmsValue: 1440,
           pisValue: 198,
           cofinsValue: 912,
+          isReconciled: false,
         },
         {
           id: 't2',
@@ -132,9 +172,10 @@ export const useErpStore = create<ErpState>()(
           cteNumber: '5502',
           origin: 'SP',
           destination: 'SP',
-          icmsValue: 630, // 18%
+          icmsValue: 630,
           pisValue: 57.75,
           cofinsValue: 266,
+          isReconciled: false,
         },
         {
           id: 'e1',
@@ -150,9 +191,25 @@ export const useErpStore = create<ErpState>()(
           icmsValue: 540,
           pisValue: 74.25,
           cofinsValue: 342,
+          isReconciled: false,
         },
       ],
       lalurEntries: [],
+      assets: [
+        {
+          id: 'a1',
+          companyId: 'c1',
+          name: 'Caminhão Volvo FH 540',
+          category: 'Vehicle',
+          acquisitionDate: '2022-01-15',
+          originalValue: 850000,
+          residualValue: 150000,
+          depreciationRate: 15,
+          status: 'Active',
+        },
+      ],
+      bankTransactions: [],
+      closingPeriods: [],
 
       setContext: (id) => set({ selectedCompanyId: id }),
       setUserRole: (role) => set({ userRole: role }),
@@ -181,7 +238,11 @@ export const useErpStore = create<ErpState>()(
         set((state) => ({
           transactions: [
             ...state.transactions,
-            { ...transaction, id: Math.random().toString(36).substring(2, 9) },
+            {
+              ...transaction,
+              id: Math.random().toString(36).substring(2, 9),
+              isReconciled: false,
+            },
           ],
         })),
 
@@ -217,6 +278,84 @@ export const useErpStore = create<ErpState>()(
           lalurEntries: state.lalurEntries.filter((e) => e.id !== id),
         })),
 
+      // New Action Implementations
+      addAsset: (asset) =>
+        set((state) => ({
+          assets: [
+            ...state.assets,
+            { ...asset, id: Math.random().toString(36).substring(2, 9) },
+          ],
+        })),
+
+      updateAsset: (id, data) =>
+        set((state) => ({
+          assets: state.assets.map((a) =>
+            a.id === id ? { ...a, ...data } : a,
+          ),
+        })),
+
+      removeAsset: (id) =>
+        set((state) => ({
+          assets: state.assets.filter((a) => a.id !== id),
+        })),
+
+      importBankTransactions: (txs) =>
+        set((state) => ({
+          bankTransactions: [
+            ...state.bankTransactions,
+            ...txs.map((t) => ({
+              ...t,
+              id: Math.random().toString(36).substring(2, 9),
+              isReconciled: false,
+            })),
+          ],
+        })),
+
+      reconcileTransaction: (bankTxId, sysTxId) =>
+        set((state) => ({
+          bankTransactions: state.bankTransactions.map((bt) =>
+            bt.id === bankTxId
+              ? { ...bt, isReconciled: true, reconciledTransactionId: sysTxId }
+              : bt,
+          ),
+          transactions: state.transactions.map((t) =>
+            t.id === sysTxId ? { ...t, isReconciled: true } : t,
+          ),
+        })),
+
+      requestClosing: (closing) =>
+        set((state) => ({
+          closingPeriods: [
+            ...state.closingPeriods,
+            {
+              ...closing,
+              id: Math.random().toString(36).substring(2, 9),
+              status: 'pending',
+            },
+          ],
+        })),
+
+      approveClosing: (id, approverName) =>
+        set((state) => ({
+          closingPeriods: state.closingPeriods.map((cp) =>
+            cp.id === id
+              ? {
+                  ...cp,
+                  status: 'approved',
+                  approvedBy: approverName,
+                  approvedAt: new Date().toISOString(),
+                }
+              : cp,
+          ),
+        })),
+
+      rejectClosing: (id) =>
+        set((state) => ({
+          closingPeriods: state.closingPeriods.map((cp) =>
+            cp.id === id ? { ...cp, status: 'rejected' } : cp,
+          ),
+        })),
+
       getFilteredTransactions: () => {
         const { transactions, selectedCompanyId } = get()
         if (selectedCompanyId === 'consolidated') return transactions
@@ -228,7 +367,13 @@ export const useErpStore = create<ErpState>()(
         if (selectedCompanyId === 'consolidated') return lalurEntries
         return lalurEntries.filter((e) => e.companyId === selectedCompanyId)
       },
+
+      getFilteredAssets: () => {
+        const { assets, selectedCompanyId } = get()
+        if (selectedCompanyId === 'consolidated') return assets
+        return assets.filter((a) => a.companyId === selectedCompanyId)
+      },
     }),
-    { name: 'erp-store-v2' },
+    { name: 'erp-store-v3' },
   ),
 )
