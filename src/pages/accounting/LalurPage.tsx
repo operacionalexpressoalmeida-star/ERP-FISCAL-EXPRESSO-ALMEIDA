@@ -1,4 +1,4 @@
-import { useErpStore } from '@/stores/useErpStore'
+import { useErpStore, LalurEntry } from '@/stores/useErpStore'
 import {
   Card,
   CardContent,
@@ -13,19 +13,27 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  TableFooter,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -45,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { toast } from '@/hooks/use-toast'
 
 const lalurSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -59,13 +68,18 @@ export default function LalurPage() {
     getFilteredLalurEntries,
     getFilteredTransactions,
     addLalurEntry,
+    updateLalurEntry,
+    removeLalurEntry,
     companies,
     selectedCompanyId,
+    userRole,
   } = useErpStore()
   const entries = getFilteredLalurEntries()
   const transactions = getFilteredTransactions()
 
-  const [open, setOpen] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [selectedEntry, setSelectedEntry] = useState<LalurEntry | null>(null)
+  const [entryToDelete, setEntryToDelete] = useState<LalurEntry | null>(null)
 
   const form = useForm<z.infer<typeof lalurSchema>>({
     resolver: zodResolver(lalurSchema),
@@ -76,10 +90,65 @@ export default function LalurPage() {
     },
   })
 
+  useEffect(() => {
+    if (selectedEntry) {
+      form.reset({
+        companyId: selectedEntry.companyId,
+        date: selectedEntry.date,
+        description: selectedEntry.description,
+        value: selectedEntry.value,
+        type: selectedEntry.type,
+      })
+    } else {
+      form.reset({
+        date: new Date().toISOString().split('T')[0],
+        companyId:
+          selectedCompanyId !== 'consolidated' ? selectedCompanyId : '',
+        description: '',
+        value: 0,
+        type: 'addition',
+      })
+    }
+  }, [selectedEntry, form, selectedCompanyId])
+
   function onSubmit(values: z.infer<typeof lalurSchema>) {
-    addLalurEntry(values)
-    setOpen(false)
-    form.reset()
+    if (selectedEntry) {
+      updateLalurEntry(selectedEntry.id, values)
+      toast({
+        title: 'Ajuste Atualizado',
+        description: 'Lançamento do LALUR modificado.',
+      })
+    } else {
+      addLalurEntry(values)
+      toast({
+        title: 'Ajuste Registrado',
+        description: 'Novo lançamento no LALUR adicionado.',
+      })
+    }
+    setIsDialogOpen(false)
+    setSelectedEntry(null)
+  }
+
+  const handleDelete = () => {
+    if (entryToDelete) {
+      removeLalurEntry(entryToDelete.id)
+      toast({
+        title: 'Ajuste Excluído',
+        description: 'Registro removido da apuração.',
+        variant: 'destructive',
+      })
+      setEntryToDelete(null)
+    }
+  }
+
+  const openEditDialog = (e: LalurEntry) => {
+    setSelectedEntry(e)
+    setIsDialogOpen(true)
+  }
+
+  const openNewDialog = () => {
+    setSelectedEntry(null)
+    setIsDialogOpen(true)
   }
 
   // Calc Logic
@@ -115,122 +184,150 @@ export default function LalurPage() {
             Livro de Apuração do Lucro Real.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" /> Novo Ajuste
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Adicionar Ajuste ao Lucro Real</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-4"
-              >
-                <FormField
-                  control={form.control}
-                  name="companyId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Empresa</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                        disabled={selectedCompanyId !== 'consolidated'}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {companies.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo de Ajuste</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="addition">Adição</SelectItem>
-                          <SelectItem value="exclusion">Exclusão</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Histórico</FormLabel>
+        {userRole === 'admin' && (
+          <Button onClick={openNewDialog}>
+            <Plus className="mr-2 h-4 w-4" /> Novo Ajuste
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedEntry
+                ? 'Editar Ajuste'
+                : 'Adicionar Ajuste ao Lucro Real'}
+            </DialogTitle>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="companyId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Empresa</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      disabled={
+                        selectedCompanyId !== 'consolidated' && !selectedEntry
+                      }
+                    >
                       <FormControl>
-                        <Input {...field} />
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {companies.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de Ajuste</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="addition">Adição</SelectItem>
+                        <SelectItem value="exclusion">Exclusão</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Histórico</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Data</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Data</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="value"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Valor</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <Button type="submit" className="w-full">
-                  Registrar Ajuste
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                <FormField
+                  control={form.control}
+                  name="value"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Valor</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <Button type="submit" className="w-full">
+                {selectedEntry ? 'Salvar Ajuste' : 'Registrar Ajuste'}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!entryToDelete}
+        onOpenChange={(open) => !open && setEntryToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover Ajuste?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso afetará o cálculo do imposto de renda e da contribuição
+              social.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="md:col-span-2">
@@ -334,6 +431,7 @@ export default function LalurPage() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Histórico</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
+                {userRole === 'admin' && <TableHead className="w-[100px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -352,6 +450,25 @@ export default function LalurPage() {
                     {e.type === 'addition' ? '+' : '-'}
                     {formatCurrency(e.value)}
                   </TableCell>
+                  {userRole === 'admin' && (
+                    <TableCell className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditDialog(e)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setEntryToDelete(e)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

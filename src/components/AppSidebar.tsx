@@ -21,12 +21,29 @@ import {
   FileBarChart2,
   Settings,
   Package,
+  UserCircle,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { useErpStore, UserRole } from '@/stores/useErpStore'
 
 export function AppSidebar() {
   const location = useLocation()
+  const { userRole, setUserRole } = useErpStore()
+
+  const roleLabels: Record<UserRole, string> = {
+    admin: 'Administrador',
+    operator: 'Operador',
+    viewer: 'Consulta',
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -151,20 +168,41 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg">
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage
-                  src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=manager"
-                  alt="Manager"
-                />
-                <AvatarFallback>MG</AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Financial Mgr</span>
-                <span className="truncate text-xs">manager@erp.com</span>
-              </div>
-              <Settings className="ml-auto size-4" />
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton size="lg">
+                  <Avatar className="h-8 w-8 rounded-lg">
+                    <AvatarImage
+                      src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=manager"
+                      alt="User"
+                    />
+                    <AvatarFallback>U</AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">
+                      Usuário Atual
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {roleLabels[userRole]}
+                    </span>
+                  </div>
+                  <UserCircle className="ml-auto size-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[200px]">
+                <DropdownMenuLabel>Alternar Perfil</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setUserRole('admin')}>
+                  Administrador
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setUserRole('operator')}>
+                  Operador
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setUserRole('viewer')}>
+                  Consulta
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

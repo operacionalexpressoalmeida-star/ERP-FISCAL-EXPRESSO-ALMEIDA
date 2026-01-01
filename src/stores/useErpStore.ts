@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type CompanyType = 'Matrix' | 'Branch'
+export type UserRole = 'admin' | 'operator' | 'viewer'
 
 export interface Company {
   id: string
@@ -50,12 +51,23 @@ export interface ErpState {
   transactions: Transaction[]
   lalurEntries: LalurEntry[]
   selectedCompanyId: string | 'consolidated'
+  userRole: UserRole
 
   // Actions
   setContext: (companyId: string | 'consolidated') => void
+  setUserRole: (role: UserRole) => void
   addCompany: (company: Omit<Company, 'id'>) => void
+  updateCompany: (id: string, data: Partial<Omit<Company, 'id'>>) => void
+  removeCompany: (id: string) => void
   addTransaction: (transaction: Omit<Transaction, 'id'>) => void
+  updateTransaction: (
+    id: string,
+    data: Partial<Omit<Transaction, 'id'>>,
+  ) => void
+  removeTransaction: (id: string) => void
   addLalurEntry: (entry: Omit<LalurEntry, 'id'>) => void
+  updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
+  removeLalurEntry: (id: string) => void
 
   // Getters (Selectors usually used in components, but helpers here)
   getFilteredTransactions: () => Transaction[]
@@ -66,6 +78,7 @@ export const useErpStore = create<ErpState>()(
   persist(
     (set, get) => ({
       selectedCompanyId: 'consolidated',
+      userRole: 'admin',
       companies: [
         {
           id: 'c1',
@@ -183,6 +196,7 @@ export const useErpStore = create<ErpState>()(
       ],
 
       setContext: (id) => set({ selectedCompanyId: id }),
+      setUserRole: (role) => set({ userRole: role }),
 
       addCompany: (company) =>
         set((state) => ({
@@ -190,6 +204,18 @@ export const useErpStore = create<ErpState>()(
             ...state.companies,
             { ...company, id: Math.random().toString(36).substring(2, 9) },
           ],
+        })),
+
+      updateCompany: (id, data) =>
+        set((state) => ({
+          companies: state.companies.map((c) =>
+            c.id === id ? { ...c, ...data } : c,
+          ),
+        })),
+
+      removeCompany: (id) =>
+        set((state) => ({
+          companies: state.companies.filter((c) => c.id !== id),
         })),
 
       addTransaction: (transaction) =>
@@ -200,12 +226,36 @@ export const useErpStore = create<ErpState>()(
           ],
         })),
 
+      updateTransaction: (id, data) =>
+        set((state) => ({
+          transactions: state.transactions.map((t) =>
+            t.id === id ? { ...t, ...data } : t,
+          ),
+        })),
+
+      removeTransaction: (id) =>
+        set((state) => ({
+          transactions: state.transactions.filter((t) => t.id !== id),
+        })),
+
       addLalurEntry: (entry) =>
         set((state) => ({
           lalurEntries: [
             ...state.lalurEntries,
             { ...entry, id: Math.random().toString(36).substring(2, 9) },
           ],
+        })),
+
+      updateLalurEntry: (id, data) =>
+        set((state) => ({
+          lalurEntries: state.lalurEntries.map((e) =>
+            e.id === id ? { ...e, ...data } : e,
+          ),
+        })),
+
+      removeLalurEntry: (id) =>
+        set((state) => ({
+          lalurEntries: state.lalurEntries.filter((e) => e.id !== id),
         })),
 
       getFilteredTransactions: () => {
