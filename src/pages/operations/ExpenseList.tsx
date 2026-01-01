@@ -125,6 +125,7 @@ export default function ExpenseList() {
       isDeductibleIrpjCsll: true,
       hasCreditPisCofins: true,
       hasCreditIcms: false,
+      contractId: 'no_contract',
     },
   })
 
@@ -141,7 +142,7 @@ export default function ExpenseList() {
         isDeductibleIrpjCsll: selectedTransaction.isDeductibleIrpjCsll || false,
         hasCreditPisCofins: selectedTransaction.hasCreditPisCofins || false,
         hasCreditIcms: selectedTransaction.hasCreditIcms || false,
-        contractId: selectedTransaction.contractId || '',
+        contractId: selectedTransaction.contractId || 'no_contract',
       })
     } else {
       form.reset({
@@ -156,7 +157,7 @@ export default function ExpenseList() {
         isDeductibleIrpjCsll: true,
         hasCreditPisCofins: true,
         hasCreditIcms: false,
-        contractId: '',
+        contractId: 'no_contract',
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
@@ -167,6 +168,12 @@ export default function ExpenseList() {
     const cofinsValue = values.hasCreditPisCofins ? values.value * 0.076 : 0
     const icmsValue = values.hasCreditIcms ? values.value * 0.12 : 0
 
+    // Handle the "no_contract" sentinel value to return undefined/empty
+    const contractId =
+      values.contractId && values.contractId !== 'no_contract'
+        ? values.contractId
+        : undefined
+
     if (selectedTransaction) {
       updateTransaction(selectedTransaction.id, {
         ...values,
@@ -174,7 +181,7 @@ export default function ExpenseList() {
         pisValue,
         cofinsValue,
         icmsValue,
-        contractId: values.contractId || undefined,
+        contractId,
       })
       toast({
         title: 'Despesa Atualizada',
@@ -187,7 +194,7 @@ export default function ExpenseList() {
         pisValue,
         cofinsValue,
         icmsValue,
-        contractId: values.contractId || undefined,
+        contractId,
       })
       toast({
         title: 'Despesa Lançada',
@@ -442,6 +449,7 @@ export default function ExpenseList() {
                     <Select
                       onValueChange={field.onChange}
                       defaultValue={field.value}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -449,7 +457,7 @@ export default function ExpenseList() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">Nenhum</SelectItem>
+                        <SelectItem value="no_contract">Nenhum</SelectItem>
                         {contracts.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.partyName}
