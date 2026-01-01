@@ -18,9 +18,21 @@ import { useErpStore } from '@/stores/useErpStore'
 import { Building, ShieldCheck, ShieldAlert, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { NotificationHub } from '@/components/NotificationHub'
+import { useEffect } from 'react'
 
 export default function Layout() {
-  const { companies, selectedCompanyId, setContext, userRole } = useErpStore()
+  const {
+    companies,
+    selectedCompanyId,
+    setContext,
+    userRole,
+    checkCertificatesExpiry,
+  } = useErpStore()
+
+  useEffect(() => {
+    // Check for expiring certificates on component mount
+    checkCertificatesExpiry()
+  }, [checkCertificatesExpiry])
 
   const RoleIcon =
     userRole === 'admin'

@@ -76,7 +76,6 @@ export interface ApiConfig {
   apiKey: string
   isActive: boolean
   lastSync?: string
-  // Extended fields for SEFAZ/CIOT
   type?: 'tracking' | 'fiscal' | 'payment'
   environment?: 'homologation' | 'production'
   certificateId?: string
@@ -123,6 +122,17 @@ export interface Transaction {
   assetId?: string
   contractId?: string
   isReconciled?: boolean
+  // NFS-e fields
+  nfseStatus?: 'draft' | 'transmitted' | 'authorized' | 'rejected'
+  rpsNumber?: string
+  verificationCode?: string
+  serviceCode?: string
+  issRate?: number
+  issRetained?: boolean
+  takerName?: string
+  takerCnpj?: string
+  // CIOT fields
+  ciotCode?: string
 }
 
 export interface LalurEntry {
@@ -188,6 +198,7 @@ export interface ErpState {
   addNotification: (notification: Omit<Notification, 'id'>) => void
   markNotificationAsRead: (id: string) => void
   clearNotifications: () => void
+  checkCertificatesExpiry: () => void
 
   // Api Config Actions
   updateApiConfig: (config: ApiConfig) => void
@@ -317,14 +328,6 @@ export const useErpStore = create<ErpState>()(
           date: new Date().toISOString(),
           read: false,
         },
-        {
-          id: 'n2',
-          title: 'Imposto a Vencer',
-          message: 'DARF PIS/COFINS vence amanhã.',
-          type: 'error',
-          date: new Date().toISOString(),
-          read: false,
-        },
       ],
       apiConfigs: [
         {
@@ -334,14 +337,6 @@ export const useErpStore = create<ErpState>()(
           apiKey: '****************',
           isActive: true,
           lastSync: new Date().toISOString(),
-          type: 'tracking',
-        },
-        {
-          id: 'api_sascar',
-          serviceName: 'Sascar Fleet',
-          endpoint: 'https://webservice.sascar.com.br',
-          apiKey: '',
-          isActive: false,
           type: 'tracking',
         },
         {
@@ -359,7 +354,7 @@ export const useErpStore = create<ErpState>()(
           serviceName: 'Integração CIOT',
           endpoint: 'https://api.efrete.com.br/v1',
           apiKey: '****************',
-          isActive: false,
+          isActive: true,
           type: 'payment',
           provider: 'e-Frete',
         },
@@ -373,24 +368,7 @@ export const useErpStore = create<ErpState>()(
           status: 'valid',
         },
       ],
-      integrationLogs: [
-        {
-          id: 'log1',
-          type: 'SEFAZ',
-          action: 'Consulta Status Serviço',
-          status: 'success',
-          message: 'Serviço em operação - Versão 4.00',
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-        },
-        {
-          id: 'log2',
-          type: 'CIOT',
-          action: 'Geração de CIOT',
-          status: 'error',
-          message: 'Erro na validação do motorista: CPF inválido',
-          timestamp: new Date(Date.now() - 7200000).toISOString(),
-        },
-      ],
+      integrationLogs: [],
 
       setContext: (id) => set({ selectedCompanyId: id }),
       setUserRole: (role) => set({ userRole: role }),
@@ -425,7 +403,6 @@ export const useErpStore = create<ErpState>()(
               isReconciled: false,
             },
           ],
-          // Proactive Alert Logic Mock
           notifications: [
             ...state.notifications,
             {
@@ -559,7 +536,6 @@ export const useErpStore = create<ErpState>()(
           ),
         })),
 
-      // Contract Actions Implementation
       addContract: (contract) =>
         set((state) => ({
           contracts: [
@@ -580,7 +556,6 @@ export const useErpStore = create<ErpState>()(
           contracts: state.contracts.filter((c) => c.id !== id),
         })),
 
-      // Notification Actions Implementation
       addNotification: (notification) =>
         set((state) => ({
           notifications: [
@@ -602,7 +577,45 @@ export const useErpStore = create<ErpState>()(
 
       clearNotifications: () => set({ notifications: [] }),
 
-      // API Config Actions Implementation
+      // Check certificates and add notifications if expiring
+      checkCertificatesExpiry: () =>
+        set((state) => {
+          const today = new Date()
+          const newNotifications: Notification[] = []
+
+          state.certificates.forEach((cert) => {
+            const expiry = new Date(cert.expiryDate)
+            const diffTime = expiry.getTime() - today.getTime()
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+            const createAlert = (days: number) => {
+              const alertId = `cert-exp-${cert.id}-${days}`
+              // Avoid duplicate alerts for the same threshold
+              if (!state.notifications.some((n) => n.id === alertId)) {
+                newNotifications.push({
+                  id: alertId,
+                  title: 'Certificado Expirando',
+                  message: `O certificado ${cert.name} vence em ${days} dias.`,
+                  type: 'error',
+                  date: new Date().toISOString(),
+                  read: false,
+                })
+              }
+            }
+
+            if (diffDays <= 30 && diffDays > 15) createAlert(30)
+            else if (diffDays <= 15 && diffDays > 7) createAlert(15)
+            else if (diffDays <= 7 && diffDays >= 0) createAlert(7)
+          })
+
+          if (newNotifications.length > 0) {
+            return {
+              notifications: [...newNotifications, ...state.notifications],
+            }
+          }
+          return {}
+        }),
+
       updateApiConfig: (config) =>
         set((state) => {
           const exists = state.apiConfigs.find((c) => c.id === config.id)
@@ -618,7 +631,6 @@ export const useErpStore = create<ErpState>()(
           }
         }),
 
-      // Certificate Actions
       addCertificate: (cert) =>
         set((state) => ({
           certificates: [
@@ -632,7 +644,6 @@ export const useErpStore = create<ErpState>()(
           certificates: state.certificates.filter((c) => c.id !== id),
         })),
 
-      // Log Actions
       addIntegrationLog: (log) =>
         set((state) => ({
           integrationLogs: [
@@ -641,7 +652,7 @@ export const useErpStore = create<ErpState>()(
               id: Math.random().toString(36).substring(2, 9),
             },
             ...state.integrationLogs,
-          ].slice(0, 100), // Keep only last 100 logs
+          ].slice(0, 100),
         })),
 
       getFilteredTransactions: () => {

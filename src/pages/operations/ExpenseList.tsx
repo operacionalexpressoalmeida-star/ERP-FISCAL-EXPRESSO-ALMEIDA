@@ -15,7 +15,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2, Link as LinkIcon } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Link as LinkIcon,
+  Truck,
+  Loader2,
+} from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -79,9 +86,11 @@ export default function ExpenseList() {
     addTransaction,
     updateTransaction,
     removeTransaction,
+    addIntegrationLog,
     companies,
     selectedCompanyId,
     userRole,
+    apiConfigs,
   } = useErpStore()
 
   const transactions = getFilteredTransactions().filter(
@@ -99,6 +108,11 @@ export default function ExpenseList() {
     useState<Transaction | null>(null)
   const [transactionToDelete, setTransactionToDelete] =
     useState<Transaction | null>(null)
+  const [generatingCiotFor, setGeneratingCiotFor] = useState<string | null>(
+    null,
+  )
+
+  const ciotConfig = apiConfigs.find((c) => c.type === 'payment')
 
   const form = useForm<z.infer<typeof expenseSchema>>({
     resolver: zodResolver(expenseSchema),
@@ -187,6 +201,43 @@ export default function ExpenseList() {
       })
       setTransactionToDelete(null)
     }
+  }
+
+  const handleGenerateCiot = (t: Transaction) => {
+    if (!ciotConfig?.isActive) {
+      toast({
+        title: 'Integração Inativa',
+        description: 'Ative a integração CIOT primeiro.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setGeneratingCiotFor(t.id)
+    toast({
+      title: 'Gerando CIOT...',
+      description: `Comunicando com ${ciotConfig.provider || 'e-Frete'}...`,
+    })
+
+    setTimeout(() => {
+      const mockCiot =
+        Math.floor(Math.random() * 900000000000) + 100000000000 + ''
+      updateTransaction(t.id, {
+        ciotCode: mockCiot,
+      })
+      addIntegrationLog({
+        type: 'CIOT',
+        action: 'Geração CIOT',
+        status: 'success',
+        message: `CIOT ${mockCiot} gerado para pagamento de frete.`,
+        timestamp: new Date().toISOString(),
+      })
+      toast({
+        title: 'CIOT Gerado com Sucesso',
+        description: `Código: ${mockCiot}`,
+      })
+      setGeneratingCiotFor(null)
+    }, 2000)
   }
 
   const openEditDialog = (t: Transaction) => {
@@ -282,6 +333,9 @@ export default function ExpenseList() {
                           <SelectItem value="Fuel">Combustível</SelectItem>
                           <SelectItem value="Maintenance">
                             Manutenção
+                          </SelectItem>
+                          <SelectItem value="FreightPayment">
+                            Pagamento de Frete (Terceiros)
                           </SelectItem>
                           <SelectItem value="Administrative">
                             Administrativo
@@ -465,10 +519,10 @@ export default function ExpenseList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Categoria</TableHead>
-                <TableHead>Contrato</TableHead>
+                <TableHead>Contrato/CIOT</TableHead>
                 <TableHead className="text-center">Fiscal</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
-                {userRole === 'admin' && <TableHead className="w-[100px]" />}
+                <TableHead className="w-[120px]">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -478,14 +532,29 @@ export default function ExpenseList() {
                     {new Date(t.date).toLocaleDateString('pt-BR')}
                   </TableCell>
                   <TableCell>{t.description}</TableCell>
-                  <TableCell>{t.category}</TableCell>
                   <TableCell>
-                    {t.contractId && (
-                      <Badge variant="outline" className="text-xs">
-                        <LinkIcon className="w-3 h-3 mr-1" />
-                        Vinculado
-                      </Badge>
-                    )}
+                    {t.category === 'FreightPayment'
+                      ? 'Pagto. Frete'
+                      : t.category}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {t.contractId && (
+                        <Badge variant="outline" className="text-xs w-fit">
+                          <LinkIcon className="w-3 h-3 mr-1" />
+                          Contrato
+                        </Badge>
+                      )}
+                      {t.ciotCode && (
+                        <Badge
+                          variant="secondary"
+                          className="text-xs w-fit bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                        >
+                          <Truck className="w-3 h-3 mr-1" />
+                          {t.ciotCode}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-center text-xs">
                     {t.isDeductibleIrpjCsll && (
@@ -502,31 +571,51 @@ export default function ExpenseList() {
                   <TableCell className="text-right font-medium text-rose-600">
                     -{formatCurrency(t.value)}
                   </TableCell>
-                  {userRole === 'admin' && (
-                    <TableCell className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEditDialog(t)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setTransactionToDelete(t)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  )}
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      {t.category === 'FreightPayment' && !t.ciotCode && (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          title="Gerar CIOT"
+                          className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                          onClick={() => handleGenerateCiot(t)}
+                          disabled={generatingCiotFor === t.id}
+                        >
+                          {generatingCiotFor === t.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Truck className="h-4 w-4" />
+                          )}
+                        </Button>
+                      )}
+                      {userRole === 'admin' && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditDialog(t)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setTransactionToDelete(t)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
               {currentData.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={userRole === 'admin' ? 7 : 6}
+                    colSpan={7}
                     className="text-center h-24 text-muted-foreground"
                   >
                     Nenhum registro encontrado.

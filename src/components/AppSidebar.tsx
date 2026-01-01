@@ -27,6 +27,7 @@ import {
   CheckSquare,
   FileText,
   Network,
+  FileSignature,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -137,6 +138,17 @@ export function AppSidebar() {
                   <Link to="/operations/cte">
                     <Truck />
                     <span>Receitas (CT-e)</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith('/operations/nfse')}
+                >
+                  <Link to="/operations/nfse">
+                    <FileSignature />
+                    <span>Serviços (NFS-e)</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

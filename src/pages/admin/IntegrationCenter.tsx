@@ -21,7 +21,6 @@ import {
   ShieldCheck,
   FileCheck,
   Upload,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
   Link,
@@ -55,6 +54,7 @@ export default function IntegrationCenter() {
     removeCertificate,
     integrationLogs,
     addIntegrationLog,
+    checkCertificatesExpiry,
   } = useErpStore()
 
   // Helper to init config state
@@ -221,6 +221,9 @@ export default function IntegrationCenter() {
       issuer: 'Certisign (Mock)',
       status: 'valid',
     })
+
+    // Trigger check immediately after add
+    setTimeout(() => checkCertificatesExpiry(), 500)
 
     toast({
       title: 'Certificado Importado',
