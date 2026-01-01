@@ -1,4 +1,8 @@
-import { useErpStore, Transaction } from '@/stores/useErpStore'
+import {
+  useErpStore,
+  Transaction,
+  TransactionStatus,
+} from '@/stores/useErpStore'
 import {
   Card,
   CardContent,
@@ -25,6 +29,9 @@ import {
   FileText,
   RefreshCw,
   FileUp,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -69,6 +76,24 @@ import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
 import { ParsedFiscalDoc } from '@/lib/xml-parser'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Cell,
+  PieChart,
+  Pie,
+  ResponsiveContainer,
+} from 'recharts'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '@/components/ui/chart'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -82,6 +107,10 @@ const expenseSchema = z.object({
   hasCreditPisCofins: z.boolean().default(false),
   hasCreditIcms: z.boolean().default(false),
   contractId: z.string().optional(),
+  // Fleet fields
+  fuelType: z.string().optional(),
+  fuelQuantity: z.coerce.number().optional(),
+  odometer: z.coerce.number().optional(),
 })
 
 const ITEMS_PER_PAGE = 10
@@ -122,6 +151,7 @@ export default function ExpenseList() {
   const [generatingCiotFor, setGeneratingCiotFor] = useState<string | null>(
     null,
   )
+  const [activeTab, setActiveTab] = useState('list')
 
   const ciotConfig = apiConfigs.find((c) => c.type === 'payment')
 
@@ -134,8 +164,12 @@ export default function ExpenseList() {
       hasCreditPisCofins: true,
       hasCreditIcms: false,
       contractId: 'no_contract',
+      category: 'Other',
     },
   })
+
+  // Watch category to conditionally show fuel fields
+  const watchedCategory = form.watch('category')
 
   useEffect(() => {
     if (selectedTransaction) {
@@ -151,6 +185,9 @@ export default function ExpenseList() {
         hasCreditPisCofins: selectedTransaction.hasCreditPisCofins || false,
         hasCreditIcms: selectedTransaction.hasCreditIcms || false,
         contractId: selectedTransaction.contractId || 'no_contract',
+        fuelType: selectedTransaction.fuelType || '',
+        fuelQuantity: selectedTransaction.fuelQuantity || 0,
+        odometer: selectedTransaction.odometer || 0,
       })
     } else {
       form.reset({
@@ -161,17 +198,19 @@ export default function ExpenseList() {
         providerName: '',
         documentNumber: '',
         value: 0,
-        category: '',
+        category: 'Other',
         isDeductibleIrpjCsll: true,
         hasCreditPisCofins: true,
         hasCreditIcms: false,
         contractId: 'no_contract',
+        fuelType: '',
+        fuelQuantity: 0,
+        odometer: 0,
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
 
   function onSubmit(values: z.infer<typeof expenseSchema>) {
-    // Calc credits mock
     const pisValue = values.hasCreditPisCofins ? values.value * 0.0165 : 0
     const cofinsValue = values.hasCreditPisCofins ? values.value * 0.076 : 0
     const icmsValue = values.hasCreditIcms ? values.value * 0.12 : 0
@@ -198,6 +237,7 @@ export default function ExpenseList() {
       addTransaction({
         ...values,
         type: 'expense',
+        status: 'approved', // Manual entry is approved
         pisValue,
         cofinsValue,
         icmsValue,
@@ -222,6 +262,20 @@ export default function ExpenseList() {
       })
       setTransactionToDelete(null)
     }
+  }
+
+  const handleApprove = (t: Transaction) => {
+    updateTransaction(t.id, { status: 'approved' })
+    toast({ title: 'Despesa Aprovada', description: 'Registro contabilizado.' })
+  }
+
+  const handleReject = (t: Transaction) => {
+    updateTransaction(t.id, { status: 'rejected' })
+    toast({
+      title: 'Despesa Rejeitada',
+      description: 'Registro descartado.',
+      variant: 'destructive',
+    })
   }
 
   const handleGenerateCiot = (t: Transaction) => {
@@ -268,7 +322,7 @@ export default function ExpenseList() {
       if (count > 0) {
         toast({
           title: 'Sincronização Concluída',
-          description: `${count} novas despesas de combustível/serviço importadas automaticamente.`,
+          description: `${count} novas despesas importadas. Verifique em "Pendente".`,
         })
       } else {
         toast({
@@ -290,34 +344,18 @@ export default function ExpenseList() {
   const handleXmlConfirm = (items: ParsedFiscalDoc[]) => {
     let count = 0
     items.forEach((item) => {
-      // Auto-categorize logic
-      let category = item.category || 'Other'
-      if (
-        item.description.toLowerCase().includes('diesel') ||
-        item.description.toLowerCase().includes('gasolina') ||
-        item.description.toLowerCase().includes('etanol')
-      ) {
-        category = 'Fuel'
-      } else if (
-        item.description.toLowerCase().includes('manutenção') ||
-        item.description.toLowerCase().includes('peça') ||
-        item.description.toLowerCase().includes('serviço')
-      ) {
-        category = 'Maintenance'
-      }
-
       addTransaction({
         ...item,
         companyId:
-          selectedCompanyId !== 'consolidated' ? selectedCompanyId : 'c1', // Default or select
-        category,
+          selectedCompanyId !== 'consolidated' ? selectedCompanyId : 'c1',
+        status: 'pending', // Imported items need approval
         isDeductibleIrpjCsll: true,
       })
       count++
     })
     toast({
       title: 'Importação Concluída',
-      description: `${count} registros adicionados.`,
+      description: `${count} registros adicionados para aprovação.`,
     })
   }
 
@@ -335,6 +373,24 @@ export default function ExpenseList() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   )
+
+  // Chart Data Preparation
+  const expensesByCategory = Object.entries(
+    transactions.reduce(
+      (acc, t) => {
+        const cat = t.category || 'Uncategorized'
+        acc[cat] = (acc[cat] || 0) + t.value
+        return acc
+      },
+      {} as Record<string, number>,
+    ),
+  )
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+
+  const chartConfig = {
+    value: { label: 'Valor', color: 'hsl(var(--primary))' },
+  }
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
@@ -378,7 +434,246 @@ export default function ExpenseList() {
         onConfirm={handleXmlConfirm}
       />
 
-      {/* Dialog and AlertDialog ... (Same as before, simplified for brevity but includes logic) */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full md:w-[400px] grid-cols-2">
+          <TabsTrigger value="list">Lista de Despesas</TabsTrigger>
+          <TabsTrigger value="analytics">Dashboard Analítico</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Histórico de Despesas</CardTitle>
+              <CardDescription>
+                Custos operacionais registrados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Detalhes</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="w-[120px]">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentData.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell>
+                        {new Date(t.date).toLocaleDateString('pt-BR')}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            {t.providerName || t.description}
+                          </span>
+                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                            {t.description}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {t.category || 'Uncategorized'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {t.status === 'pending' && (
+                          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
+                            Pendente
+                          </Badge>
+                        )}
+                        {t.status === 'approved' && (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                            Aprovado
+                          </Badge>
+                        )}
+                        {t.status === 'rejected' && (
+                          <Badge variant="destructive">Rejeitado</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {t.category === 'Fuel' && t.fuelQuantity && (
+                            <span className="text-xs text-muted-foreground">
+                              {t.fuelQuantity} L • {t.fuelType}
+                            </span>
+                          )}
+                          {t.documentNumber && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <FileText className="h-3 w-3" />{' '}
+                              {t.documentNumber}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-rose-600">
+                        -{formatCurrency(t.value)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          {t.status === 'pending' && userRole === 'admin' ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleApprove(t)}
+                                title="Aprovar"
+                              >
+                                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleReject(t)}
+                                title="Rejeitar"
+                              >
+                                <XCircle className="h-4 w-4 text-rose-600" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditDialog(t)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {t.category === 'FreightPayment' &&
+                                !t.ciotCode && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Gerar CIOT"
+                                    className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                    onClick={() => handleGenerateCiot(t)}
+                                    disabled={generatingCiotFor === t.id}
+                                  >
+                                    {generatingCiotFor === t.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Truck className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                )}
+                              {userRole === 'admin' && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openEditDialog(t)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setTransactionToDelete(t)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {currentData.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="text-center h-24 text-muted-foreground"
+                      >
+                        Nenhum registro encontrado.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="analytics" className="mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="col-span-1 md:col-span-2">
+              <CardHeader>
+                <CardTitle>Despesas por Categoria</CardTitle>
+                <CardDescription>
+                  Distribuição de gastos do período.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer
+                  config={chartConfig}
+                  className="h-[350px] w-full"
+                >
+                  <BarChart data={expensesByCategory}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={10}
+                    />
+                    <YAxis />
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent />}
+                    />
+                    <Bar
+                      dataKey="value"
+                      fill="var(--color-value)"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Top Categorias</CardTitle>
+                <CardDescription>Maiores ofensores de custo.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {expensesByCategory.slice(0, 5).map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between border-b pb-2 last:border-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${index === 0 ? 'bg-rose-500' : 'bg-gray-400'}`}
+                        />
+                        <span className="font-medium">{item.name}</span>
+                      </div>
+                      <span className="font-bold">
+                        {formatCurrency(item.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -441,7 +736,7 @@ export default function ExpenseList() {
                             Manutenção
                           </SelectItem>
                           <SelectItem value="FreightPayment">
-                            Pagamento de Frete (Terceiros)
+                            Pagamento de Frete
                           </SelectItem>
                           <SelectItem value="Administrative">
                             Administrativo
@@ -449,6 +744,9 @@ export default function ExpenseList() {
                           <SelectItem value="Personnel">Pessoal</SelectItem>
                           <SelectItem value="Tolls">Pedágio</SelectItem>
                           <SelectItem value="Other">Outros</SelectItem>
+                          <SelectItem value="Uncategorized">
+                            Não Categorizado
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -457,7 +755,73 @@ export default function ExpenseList() {
                 />
               </div>
 
-              {/* ... Rest of form similar to previous, ensured no Tracking input ... */}
+              {watchedCategory === 'Fuel' && (
+                <div className="bg-muted/20 p-4 rounded-md border border-dashed border-primary/20 space-y-4">
+                  <div className="flex items-center gap-2 text-sm text-primary font-medium">
+                    <Truck className="h-4 w-4" /> Dados de Abastecimento
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="fuelType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="Diesel S10">
+                                Diesel S10
+                              </SelectItem>
+                              <SelectItem value="Diesel S500">
+                                Diesel S500
+                              </SelectItem>
+                              <SelectItem value="Gasolina">Gasolina</SelectItem>
+                              <SelectItem value="Etanol">Etanol</SelectItem>
+                              <SelectItem value="Arla 32">Arla 32</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="fuelQuantity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Litros</FormLabel>
+                          <FormControl>
+                            <Input type="number" step="0.01" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="odometer"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Odômetro (km)</FormLabel>
+                          <FormControl>
+                            <Input type="number" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -648,149 +1012,6 @@ export default function ExpenseList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Histórico de Despesas</CardTitle>
-          <CardDescription>Custos operacionais registrados.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Data</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead>Contrato/Doc</TableHead>
-                <TableHead className="text-center">Fiscal</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
-                <TableHead className="w-[120px]">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentData.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell>
-                    {new Date(t.date).toLocaleDateString('pt-BR')}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">
-                        {t.providerName || t.description}
-                      </span>
-                      {t.providerName && (
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          {t.description}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {t.category === 'FreightPayment'
-                      ? 'Pagto. Frete'
-                      : t.category}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      {t.contractId && (
-                        <Badge variant="outline" className="text-xs w-fit">
-                          <LinkIcon className="w-3 h-3 mr-1" />
-                          Contrato
-                        </Badge>
-                      )}
-                      {(t.documentNumber ||
-                        (t.cteNumber && t.category === 'Fuel')) && (
-                        <Badge variant="outline" className="text-xs w-fit">
-                          <FileText className="w-3 h-3 mr-1" />
-                          {t.documentNumber || t.cteNumber}
-                        </Badge>
-                      )}
-                      {t.ciotCode && (
-                        <Badge
-                          variant="secondary"
-                          className="text-xs w-fit bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
-                        >
-                          <Truck className="w-3 h-3 mr-1" />
-                          {t.ciotCode}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center text-xs">
-                    {t.isDeductibleIrpjCsll && (
-                      <span className="bg-green-100 text-green-800 px-1 rounded mr-1">
-                        IR
-                      </span>
-                    )}
-                    {t.hasCreditPisCofins && (
-                      <span className="bg-blue-100 text-blue-800 px-1 rounded">
-                        PIS
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right font-medium text-rose-600">
-                    -{formatCurrency(t.value)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      {t.category === 'FreightPayment' && !t.ciotCode && (
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          title="Gerar CIOT"
-                          className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                          onClick={() => handleGenerateCiot(t)}
-                          disabled={generatingCiotFor === t.id}
-                        >
-                          {generatingCiotFor === t.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Truck className="h-4 w-4" />
-                          )}
-                        </Button>
-                      )}
-                      {userRole === 'admin' && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditDialog(t)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setTransactionToDelete(t)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {currentData.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="text-center h-24 text-muted-foreground"
-                  >
-                    Nenhum registro encontrado.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-          <PaginationControls
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={setCurrentPage}
-          />
-        </CardContent>
-      </Card>
     </div>
   )
 }

@@ -189,7 +189,8 @@ export default function IntegrationCenter() {
       addTransaction({
         companyId: targetCompanyId,
         type: 'expense',
-        category: 'Fuel',
+        status: 'pending', // Pending Approval
+        category: 'Fuel', // Auto categorized
         description: `Abastecimento (Auto) - NF ${mockNfeNumber}`,
         providerName: 'Posto Rede Shell',
         documentNumber: mockNfeNumber,
@@ -202,6 +203,10 @@ export default function IntegrationCenter() {
         icmsValue: Number((mockValue * 0.12).toFixed(2)),
         pisValue: Number((mockValue * 0.0165).toFixed(2)),
         cofinsValue: Number((mockValue * 0.076).toFixed(2)),
+        // Fleet Enrichment Mock
+        fuelType: 'Diesel S10',
+        fuelQuantity: Number((mockValue / 6.5).toFixed(2)), // Approx price per liter
+        odometer: 0, // Unknown
       })
 
       addIntegrationLog({
@@ -214,7 +219,7 @@ export default function IntegrationCenter() {
 
       toast({
         title: 'Automação Executada',
-        description: `Despesa de Combustível (NF ${mockNfeNumber}) gerada automaticamente.`,
+        description: `Despesa de Combustível (NF ${mockNfeNumber}) gerada para aprovação.`,
       })
     } else {
       console.log('Duplicidade evitada: NF já importada.')

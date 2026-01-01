@@ -1,6 +1,9 @@
 import { Transaction } from '@/stores/useErpStore'
 
-export interface ParsedFiscalDoc extends Omit<Transaction, 'id' | 'companyId'> {
+export interface ParsedFiscalDoc extends Omit<
+  Transaction,
+  'id' | 'companyId' | 'status'
+> {
   rawXml?: string
   recipientCnpj?: string
   providerCnpj?: string
@@ -18,7 +21,29 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
   const getValue = (parent: Element | Document, tag: string) =>
     parent.getElementsByTagName(tag)[0]?.textContent || ''
 
-  // Try NF-e (Nota Fiscal Eletrônica) - e.g. Fuel, Products
+  // Categorization Logic
+  const categorize = (desc: string) => {
+    const d = desc.toLowerCase()
+    if (
+      d.includes('diesel') ||
+      d.includes('gasolina') ||
+      d.includes('etanol') ||
+      d.includes('arla')
+    )
+      return 'Fuel'
+    if (
+      d.includes('manutencao') ||
+      d.includes('manutenção') ||
+      d.includes('revisao') ||
+      d.includes('pneu') ||
+      d.includes('servico')
+    )
+      return 'Maintenance'
+    if (d.includes('pedagio') || d.includes('pedágio')) return 'Tolls'
+    return 'Uncategorized'
+  }
+
+  // Try NF-e (Nota Fiscal Eletrônica)
   const infNFe = xmlDoc.getElementsByTagName('infNFe')[0]
   if (infNFe) {
     const ide = infNFe.getElementsByTagName('ide')[0]
@@ -33,13 +58,26 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const cnpjEmit = getValue(emit, 'CNPJ')
     const cnpjDest = getValue(dest, 'CNPJ')
 
-    // Extract first product for description
+    // Extract first product
     const det = infNFe.getElementsByTagName('det')[0]
     const prod = det?.getElementsByTagName('prod')[0]
     const xProd = getValue(prod!, 'xProd')
+    const category = categorize(xProd || '')
+
+    // Fleet Enrichment
+    let fuelType, fuelQuantity
+    if (category === 'Fuel') {
+      fuelType = xProd.includes('S10')
+        ? 'Diesel S10'
+        : xProd.includes('Gasolina')
+          ? 'Gasolina'
+          : 'Diesel'
+      const qCom = parseFloat(getValue(prod!, 'qCom') || '0')
+      fuelQuantity = qCom
+    }
 
     return {
-      type: 'expense', // Assume expense for NF-e (incoming)
+      type: 'expense',
       date: dhEmi
         ? dhEmi.split('T')[0]
         : new Date().toISOString().split('T')[0],
@@ -49,10 +87,13 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       providerCnpj: cnpjEmit,
       recipientCnpj: cnpjDest,
       documentNumber: nNF,
-      category: 'Other', // Default
+      category,
       icmsValue: 0,
       pisValue: 0,
       cofinsValue: 0,
+      fuelType,
+      fuelQuantity,
+      odometer: 0,
     }
   }
 
@@ -74,7 +115,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
 
     return {
-      type: 'revenue', // Default to revenue for CT-e
+      type: 'revenue',
       date: dhEmi
         ? dhEmi.split('T')[0]
         : new Date().toISOString().split('T')[0],
@@ -90,7 +131,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     }
   }
 
-  // Try NFS-e (Nota Fiscal de Serviço Eletrônica)
+  // Try NFS-e
   const valorServicos = xmlDoc.getElementsByTagName('ValorServicos')[0]
   const dataEmissao = xmlDoc.getElementsByTagName('DataEmissao')[0]
 
@@ -113,10 +154,11 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const cpfCnpjPrestador = prestador?.getElementsByTagName('CpfCnpj')[0]
     const cnpjPrestador = getValue(cpfCnpjPrestador!, 'Cnpj')
     const razaoSocialPrestador = getValue(prestador!, 'RazaoSocial')
+    const category = categorize(discriminacao)
 
     if (vServ > 0) {
       return {
-        type: 'revenue', // Default, logic might change to expense based on CNPJ match in UI
+        type: 'revenue',
         date: dEmi
           ? dEmi.split('T')[0]
           : new Date().toISOString().split('T')[0],
@@ -124,11 +166,12 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
         description: discriminacao
           ? discriminacao.slice(0, 100)
           : `Serviço NFS-e ${numero}`,
-        cteNumber: numero, // Using cteNumber field to store NF Number
+        cteNumber: numero,
         recipientCnpj: cnpjTomador,
         providerCnpj: cnpjPrestador,
         providerName: razaoSocialPrestador,
         documentNumber: numero,
+        category,
         icmsValue: 0,
         pisValue: 0,
         cofinsValue: 0,
@@ -136,7 +179,5 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     }
   }
 
-  throw new Error(
-    'Formato de XML não reconhecido. Certifique-se de que é um NF-e, CT-e ou NFS-e padrão.',
-  )
+  throw new Error('Formato de XML não reconhecido.')
 }

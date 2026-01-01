@@ -12,7 +12,10 @@ import { formatCurrency } from '@/lib/utils'
 export default function DrePage() {
   const { getFilteredTransactions, companies, selectedCompanyId } =
     useErpStore()
-  const transactions = getFilteredTransactions()
+  // Filter for approved
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   // DRE Calculation
   const grossRevenue = transactions

@@ -32,7 +32,10 @@ import {
 export default function Index() {
   const { getFilteredTransactions, companies, selectedCompanyId } =
     useErpStore()
-  const transactions = getFilteredTransactions()
+  // Filter only approved for financial stats
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   // KPIs
   const totalRevenue = transactions
@@ -48,9 +51,6 @@ export default function Index() {
     return acc + (t.icmsValue || 0) + (t.pisValue || 0) + (t.cofinsValue || 0)
   }, 0)
 
-  // Net Result (Simplified: Revenue - Expenses (incl taxes implicit in expense or not? usually expenses list includes taxes, but for net result accounting we subtract expenses and revenue taxes)
-  // For this dashboard, let's assume 'value' in revenue is Gross, and 'value' in expense is total cost.
-  // Net = Revenue - Expenses.
   const netResult = totalRevenue - totalExpense
 
   // Chart Data: Revenue vs Expense
@@ -193,7 +193,9 @@ export default function Index() {
         <Card className="col-span-3">
           <CardHeader>
             <CardTitle>Atividade Recente</CardTitle>
-            <CardDescription>Últimas transações registradas.</CardDescription>
+            <CardDescription>
+              Últimas transações contabilizadas.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">

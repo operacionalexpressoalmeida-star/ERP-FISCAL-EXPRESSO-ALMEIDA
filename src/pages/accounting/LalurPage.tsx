@@ -75,7 +75,9 @@ export default function LalurPage() {
     userRole,
   } = useErpStore()
   const entries = getFilteredLalurEntries()
-  const transactions = getFilteredTransactions()
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<LalurEntry | null>(null)

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 
 export type CompanyType = 'Matrix' | 'Branch'
 export type UserRole = 'admin' | 'operator' | 'viewer'
+export type TransactionStatus = 'pending' | 'approved' | 'rejected'
 
 export interface Company {
   id: string
@@ -106,6 +107,7 @@ export interface Transaction {
   id: string
   companyId: string
   type: 'revenue' | 'expense'
+  status: TransactionStatus // New Approval Status
   date: string
   description: string
   value: number
@@ -137,6 +139,10 @@ export interface Transaction {
   takerCnpj?: string
   // CIOT fields
   ciotCode?: string
+  // Fleet Fields
+  fuelType?: string
+  fuelQuantity?: number
+  odometer?: number
 }
 
 export interface LalurEntry {
@@ -169,7 +175,11 @@ export interface ErpState {
   addCompany: (company: Omit<Company, 'id'>) => void
   updateCompany: (id: string, data: Partial<Omit<Company, 'id'>>) => void
   removeCompany: (id: string) => void
-  addTransaction: (transaction: Omit<Transaction, 'id'>) => void
+  addTransaction: (
+    transaction: Omit<Transaction, 'id' | 'status'> & {
+      status?: TransactionStatus
+    },
+  ) => void
   updateTransaction: (
     id: string,
     data: Partial<Omit<Transaction, 'id'>>,
@@ -251,6 +261,7 @@ export const useErpStore = create<ErpState>()(
           id: 't1',
           companyId: 'c1',
           type: 'revenue',
+          status: 'approved',
           date: '2024-02-10',
           description: 'Transporte Carga Pesada SP-PR',
           value: 12000,
@@ -266,6 +277,7 @@ export const useErpStore = create<ErpState>()(
           id: 't2',
           companyId: 'c1',
           type: 'revenue',
+          status: 'approved',
           date: '2024-02-11',
           description: 'Entrega Expressa SP-SP',
           value: 3500,
@@ -281,12 +293,16 @@ export const useErpStore = create<ErpState>()(
           id: 'e1',
           companyId: 'c1',
           type: 'expense',
+          status: 'approved',
           date: '2024-02-05',
           description: 'Diesel S10',
           providerName: 'Posto Shell',
           documentNumber: '102030',
           value: 4500,
           category: 'Fuel',
+          fuelType: 'Diesel S10',
+          fuelQuantity: 750,
+          odometer: 125000,
           isDeductibleIrpjCsll: true,
           hasCreditPisCofins: true,
           hasCreditIcms: true,
@@ -398,6 +414,7 @@ export const useErpStore = create<ErpState>()(
             ...state.transactions,
             {
               ...transaction,
+              status: transaction.status || 'approved', // Default to approved if manual
               id: Math.random().toString(36).substring(2, 9),
               isReconciled: false,
             },
@@ -628,7 +645,6 @@ export const useErpStore = create<ErpState>()(
           }
         }),
 
-      // New action to simulate SEFAZ automation
       syncSefazExpenses: async (targetCnpj) => {
         const { transactions, apiConfigs } = get()
         const sefazConfig = apiConfigs.find((c) => c.type === 'fiscal')
@@ -637,25 +653,47 @@ export const useErpStore = create<ErpState>()(
           throw new Error('Integração SEFAZ inativa.')
         }
 
-        // Mock delay
         await new Promise((resolve) => setTimeout(resolve, 1500))
 
         const newExpenses: Transaction[] = []
         const today = new Date().toISOString().split('T')[0]
 
-        // Mock Fuel Invoice (NF-e)
+        // Helper for smart categorization
+        const categorize = (desc: string) => {
+          const d = desc.toLowerCase()
+          if (
+            d.includes('diesel') ||
+            d.includes('gasolina') ||
+            d.includes('etanol')
+          )
+            return 'Fuel'
+          if (
+            d.includes('manutencao') ||
+            d.includes('revisao') ||
+            d.includes('pneu') ||
+            d.includes('servico')
+          )
+            return 'Maintenance'
+          if (d.includes('pedagio') || d.includes('pedágio')) return 'Tolls'
+          return 'Uncategorized'
+        }
+
+        // Mock Fuel Invoice
         const fuelDoc = '550' + Math.floor(Math.random() * 1000)
         if (!transactions.some((t) => t.documentNumber === fuelDoc)) {
+          const desc = 'Abastecimento Automático - Diesel S10'
+          const cat = categorize(desc)
           newExpenses.push({
             id: Math.random().toString(36).substring(2, 9),
-            companyId: 'c1', // Assuming c1 has the target CNPJ logic match
+            companyId: 'c1',
             type: 'expense',
+            status: 'pending', // Pending Approval
             date: today,
-            description: 'Abastecimento Automático - Diesel S10',
+            description: desc,
             providerName: 'Posto Rede VIP',
             documentNumber: fuelDoc,
             value: 1250.0,
-            category: 'Fuel',
+            category: cat,
             isDeductibleIrpjCsll: true,
             hasCreditPisCofins: true,
             hasCreditIcms: true,
@@ -663,27 +701,33 @@ export const useErpStore = create<ErpState>()(
             pisValue: 20.62,
             cofinsValue: 95.0,
             isReconciled: false,
-            // Hidden metadata
             takerCnpj: targetCnpj,
+            // Fleet fields
+            fuelType: 'Diesel S10',
+            fuelQuantity: 200, // Mock auto extraction
+            odometer: 0, // Unknown
           })
         }
 
-        // Mock Service Invoice (NFS-e)
+        // Mock Service Invoice
         const serviceDoc = '2024' + Math.floor(Math.random() * 1000)
         if (!transactions.some((t) => t.documentNumber === serviceDoc)) {
+          const desc = 'Manutenção Freios - Serviço Terceirizado'
+          const cat = categorize(desc)
           newExpenses.push({
             id: Math.random().toString(36).substring(2, 9),
             companyId: 'c1',
             type: 'expense',
+            status: 'pending', // Pending Approval
             date: today,
-            description: 'Manutenção Freios - Serviço Terceirizado',
+            description: desc,
             providerName: 'Oficina Truck Center',
             documentNumber: serviceDoc,
             value: 850.0,
-            category: 'Maintenance',
+            category: cat,
             isDeductibleIrpjCsll: true,
             hasCreditPisCofins: true,
-            hasCreditIcms: false, // Service usually no ICMS credit
+            hasCreditIcms: false,
             icmsValue: 0,
             pisValue: 5.52,
             cofinsValue: 25.5,
@@ -705,6 +749,17 @@ export const useErpStore = create<ErpState>()(
                 timestamp: new Date().toISOString(),
               },
               ...state.integrationLogs,
+            ],
+            notifications: [
+              ...state.notifications,
+              {
+                id: Math.random().toString(36).substring(2, 9),
+                title: 'Despesas Importadas',
+                message: `${newExpenses.length} novas despesas aguardando aprovação.`,
+                type: 'warning',
+                date: new Date().toISOString(),
+                read: false,
+              },
             ],
           }))
         }

@@ -1,4 +1,4 @@
-import { useErpStore, BankTransaction, Transaction } from '@/stores/useErpStore'
+import { useErpStore, BankTransaction } from '@/stores/useErpStore'
 import {
   Card,
   CardContent,
@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Upload, Link2, CheckCircle2 } from 'lucide-react'
+import { Upload, Link2 } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { useState } from 'react'
 import { toast } from '@/hooks/use-toast'
@@ -28,7 +28,10 @@ export default function BankReconciliation() {
     importBankTransactions,
     reconcileTransaction,
   } = useErpStore()
-  const sysTransactions = getFilteredTransactions()
+  // Only approved transactions are valid for reconciliation
+  const sysTransactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   const [selectedBankTx, setSelectedBankTx] = useState<string | null>(null)
   const [selectedSysTx, setSelectedSysTx] = useState<string | null>(null)
@@ -166,7 +169,7 @@ export default function BankReconciliation() {
           <CardHeader className="bg-muted/10 pb-4">
             <CardTitle className="text-sm flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-amber-500" /> Sistema ERP
-              (Pendente)
+              (Aprovado & Pendente)
             </CardTitle>
             <CardDescription>
               Selecione o lançamento correspondente

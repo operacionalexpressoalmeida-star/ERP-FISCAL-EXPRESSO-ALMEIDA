@@ -39,7 +39,10 @@ export default function TaxReports() {
   const [month, setMonth] = useState(String(new Date().getMonth() + 1))
   const [year, setYear] = useState(String(new Date().getFullYear()))
 
-  const transactions = getFilteredTransactions() // In real app, filter by month/year here
+  // Filter approved transactions for official tax reports
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
   const lalur = getFilteredLalurEntries()
 
   // Simplified Calculation Logic for the Report

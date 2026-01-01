@@ -22,7 +22,11 @@ import { Label } from '@/components/ui/label'
 import { useState } from 'react'
 
 export default function CustomDashboard() {
-  const { transactions, assets } = useErpStore()
+  const { getFilteredTransactions, assets } = useErpStore()
+  // Filter for approved
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   // Config State
   const [showRevenueByOrigin, setShowRevenueByOrigin] = useState(true)

@@ -13,13 +13,15 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  TableFooter,
 } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/utils'
 
 export default function TaxPage() {
   const { getFilteredTransactions } = useErpStore()
-  const transactions = getFilteredTransactions()
+  // Filter for approved
+  const transactions = getFilteredTransactions().filter(
+    (t) => t.status === 'approved',
+  )
 
   // ICMS Calc
   const icmsDebit = transactions
