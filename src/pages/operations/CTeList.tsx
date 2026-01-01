@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Upload } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -54,6 +54,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
+import { ParsedFiscalDoc } from '@/lib/xml-parser'
 
 const cteSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -82,6 +84,7 @@ export default function CTeList() {
     (t) => t.type === 'revenue',
   )
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isImportOpen, setIsImportOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null)
   const [transactionToDelete, setTransactionToDelete] =
@@ -201,6 +204,38 @@ export default function CTeList() {
     setSelectedTransaction(null)
   }
 
+  const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
+    let count = 0
+    // Determine target company for import
+    const targetCompanyId =
+      selectedCompanyId !== 'consolidated'
+        ? selectedCompanyId
+        : companies[0]?.id
+
+    if (!targetCompanyId) {
+      toast({
+        title: 'Erro de Contexto',
+        description:
+          'Não foi possível identificar a empresa para importação. Selecione uma empresa no menu superior.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    items.forEach((item) => {
+      addTransaction({
+        ...item,
+        companyId: targetCompanyId,
+      })
+      count++
+    })
+
+    toast({
+      title: 'Importação Concluída',
+      description: `${count} documentos foram processados e adicionados ao sistema.`,
+    })
+  }
+
   const handleDelete = () => {
     if (transactionToDelete) {
       removeTransaction(transactionToDelete.id)
@@ -236,11 +271,26 @@ export default function CTeList() {
           </p>
         </div>
         {userRole === 'admin' && (
-          <Button onClick={openNewDialog}>
-            <Plus className="mr-2 h-4 w-4" /> Novo CT-e
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsImportOpen(true)}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" /> Importar XML
+            </Button>
+            <Button onClick={openNewDialog}>
+              <Plus className="mr-2 h-4 w-4" /> Novo CT-e
+            </Button>
+          </div>
         )}
       </div>
+
+      <XmlImportDialog
+        open={isImportOpen}
+        onOpenChange={setIsImportOpen}
+        onConfirm={handleImportConfirm}
+      />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
