@@ -24,8 +24,9 @@ import {
   CheckCircle2,
   XCircle,
   Link,
+  Fuel,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from '@/hooks/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -55,6 +56,10 @@ export default function IntegrationCenter() {
     integrationLogs,
     addIntegrationLog,
     checkCertificatesExpiry,
+    transactions,
+    addTransaction,
+    companies,
+    selectedCompanyId,
   } = useErpStore()
 
   // Helper to init config state
@@ -92,6 +97,21 @@ export default function IntegrationCenter() {
   const [certFile, setCertFile] = useState<File | null>(null)
   const [certPassword, setCertPassword] = useState('')
 
+  // Sync local state with store when store updates
+  useEffect(() => {
+    const newOmnilink = apiConfigs.find((c) => c.id === 'api_omni')
+    if (newOmnilink) setOmnilink(newOmnilink)
+
+    const newSascar = apiConfigs.find((c) => c.id === 'api_sascar')
+    if (newSascar) setSascar(newSascar)
+
+    const newSefaz = apiConfigs.find((c) => c.id === 'api_sefaz')
+    if (newSefaz) setSefaz(newSefaz)
+
+    const newCiot = apiConfigs.find((c) => c.id === 'api_ciot')
+    if (newCiot) setCiot(newCiot)
+  }, [apiConfigs])
+
   const handleSave = (config: ApiConfig) => {
     updateApiConfig(config)
     toast({
@@ -109,7 +129,8 @@ export default function IntegrationCenter() {
     // Simulate process
     setTimeout(() => {
       const success = Math.random() > 0.2
-      updateApiConfig({ ...config, lastSync: new Date().toISOString() })
+      const updatedConfig = { ...config, lastSync: new Date().toISOString() }
+      updateApiConfig(updatedConfig)
 
       addIntegrationLog({
         type:
@@ -131,6 +152,11 @@ export default function IntegrationCenter() {
           title: 'Sucesso',
           description: 'Dados atualizados com sucesso.',
         })
+
+        // Automation Trigger: Fuel Expenses
+        if (config.type === 'fiscal' && config.autoGenerateExpenses) {
+          simulateFuelExpenseGeneration()
+        }
       } else {
         toast({
           title: 'Erro de Conexão',
@@ -139,6 +165,55 @@ export default function IntegrationCenter() {
         })
       }
     }, 2000)
+  }
+
+  const simulateFuelExpenseGeneration = () => {
+    // Mock detecting a new Fuel NF-e
+    const mockNfeNumber = Math.floor(Math.random() * 100000).toString()
+    const mockValue = Number((Math.random() * 1000 + 200).toFixed(2))
+    const mockDate = new Date().toISOString().split('T')[0]
+
+    // Duplicate Check logic: ensure we don't import the same Invoice Number twice
+    const isDuplicate = transactions.some((t) => t.cteNumber === mockNfeNumber)
+
+    if (!isDuplicate) {
+      // Determine company context (fallback to first company if consolidated)
+      const targetCompanyId =
+        selectedCompanyId === 'consolidated'
+          ? companies[0]?.id
+          : selectedCompanyId
+
+      addTransaction({
+        companyId: targetCompanyId,
+        type: 'expense',
+        category: 'Fuel',
+        description: `Abastecimento (Auto) - NF ${mockNfeNumber} - Posto Rede Shell`,
+        value: mockValue,
+        date: mockDate,
+        cteNumber: mockNfeNumber, // Mapping Invoice Number to cteNumber field for reference
+        isDeductibleIrpjCsll: true,
+        hasCreditPisCofins: true,
+        hasCreditIcms: true,
+        icmsValue: Number((mockValue * 0.12).toFixed(2)),
+        pisValue: Number((mockValue * 0.0165).toFixed(2)),
+        cofinsValue: Number((mockValue * 0.076).toFixed(2)),
+      })
+
+      addIntegrationLog({
+        type: 'SEFAZ',
+        action: 'Automação de Despesa',
+        status: 'success',
+        message: `NF-e ${mockNfeNumber} de Combustível importada automaticamente.`,
+        timestamp: new Date().toISOString(),
+      })
+
+      toast({
+        title: 'Automação Executada',
+        description: `Despesa de Combustível (NF ${mockNfeNumber}) gerada automaticamente.`,
+      })
+    } else {
+      console.log('Duplicidade evitada: NF já importada.')
+    }
   }
 
   // SEFAZ Actions
@@ -372,7 +447,7 @@ export default function IntegrationCenter() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Receipt className="h-5 w-5 text-amber-500" />
-                    <CardTitle>Configuração SEFAZ (NFS-e)</CardTitle>
+                    <CardTitle>Configuração SEFAZ</CardTitle>
                   </div>
                   <Switch
                     checked={sefaz.isActive}
@@ -380,8 +455,7 @@ export default function IntegrationCenter() {
                   />
                 </div>
                 <CardDescription>
-                  Emissão de Notas Fiscais de Serviço e comunicação com a
-                  prefeitura.
+                  Comunicação com a Secretaria da Fazenda para NFe/NFSe.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -437,6 +511,24 @@ export default function IntegrationCenter() {
                     }
                   />
                 </div>
+                <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                  <div className="space-y-0.5">
+                    <Label className="text-base flex items-center gap-2">
+                      <Fuel className="h-4 w-4 text-amber-600" />
+                      Gerar Despesas de Combustível
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Criar automaticamente despesas ao identificar NF-e de
+                      abastecimento.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={sefaz.autoGenerateExpenses || false}
+                    onCheckedChange={(c) =>
+                      setSefaz({ ...sefaz, autoGenerateExpenses: c })
+                    }
+                  />
+                </div>
               </CardContent>
               <CardFooter className="justify-end">
                 <Button onClick={() => handleSave(sefaz)}>
@@ -456,8 +548,7 @@ export default function IntegrationCenter() {
                   className="w-full"
                   onClick={() => handleSync(sefaz)}
                 >
-                  <RefreshCw className="mr-2 h-4 w-4" /> Verificar Status
-                  Serviço
+                  <RefreshCw className="mr-2 h-4 w-4" /> Sincronizar NF-e
                 </Button>
                 <Button
                   className="w-full bg-amber-600 hover:bg-amber-700"

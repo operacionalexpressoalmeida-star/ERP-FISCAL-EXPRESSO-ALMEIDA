@@ -80,6 +80,7 @@ export interface ApiConfig {
   environment?: 'homologation' | 'production'
   certificateId?: string
   provider?: string
+  autoGenerateExpenses?: boolean // New field for automation
 }
 
 export interface Certificate {
@@ -348,6 +349,7 @@ export const useErpStore = create<ErpState>()(
           type: 'fiscal',
           environment: 'homologation',
           certificateId: 'cert1',
+          autoGenerateExpenses: false,
         },
         {
           id: 'api_ciot',

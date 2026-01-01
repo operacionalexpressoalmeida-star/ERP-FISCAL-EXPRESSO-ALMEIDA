@@ -22,6 +22,7 @@ import {
   Link as LinkIcon,
   Truck,
   Loader2,
+  FileText,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -531,7 +532,17 @@ export default function ExpenseList() {
                   <TableCell>
                     {new Date(t.date).toLocaleDateString('pt-BR')}
                   </TableCell>
-                  <TableCell>{t.description}</TableCell>
+                  <TableCell>
+                    {t.cteNumber && t.category === 'Fuel' && (
+                      <Badge
+                        variant="secondary"
+                        className="mr-2 text-xs bg-amber-100 text-amber-800"
+                      >
+                        Auto
+                      </Badge>
+                    )}
+                    {t.description}
+                  </TableCell>
                   <TableCell>
                     {t.category === 'FreightPayment'
                       ? 'Pagto. Frete'
@@ -543,6 +554,12 @@ export default function ExpenseList() {
                         <Badge variant="outline" className="text-xs w-fit">
                           <LinkIcon className="w-3 h-3 mr-1" />
                           Contrato
+                        </Badge>
+                      )}
+                      {t.cteNumber && t.category === 'Fuel' && (
+                        <Badge variant="outline" className="text-xs w-fit">
+                          <FileText className="w-3 h-3 mr-1" />
+                          NF {t.cteNumber}
                         </Badge>
                       )}
                       {t.ciotCode && (
