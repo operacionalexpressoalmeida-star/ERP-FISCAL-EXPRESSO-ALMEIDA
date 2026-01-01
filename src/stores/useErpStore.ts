@@ -4,6 +4,12 @@ import { persist } from 'zustand/middleware'
 export type CompanyType = 'Matrix' | 'Branch'
 export type UserRole = 'admin' | 'operator' | 'viewer'
 export type TransactionStatus = 'pending' | 'approved' | 'rejected'
+export type AssetStatus =
+  | 'Active'
+  | 'Sold'
+  | 'WrittenOff'
+  | 'In Maintenance'
+  | 'Doc Pending'
 
 export interface Company {
   id: string
@@ -19,12 +25,19 @@ export interface Asset {
   id: string
   companyId: string
   name: string
+  plate?: string
   category: 'Vehicle' | 'Machinery' | 'Equipment' | 'Other'
   acquisitionDate: string
   originalValue: number
   residualValue: number
   depreciationRate: number // % per year
-  status: 'Active' | 'Sold' | 'WrittenOff'
+  status: AssetStatus
+  lastMaintenanceDate?: string
+  nextMaintenanceDate?: string
+  licensingExpiryDate?: string
+  insuranceExpiryDate?: string
+  averageConsumption?: number
+  lastOdometer?: number
 }
 
 export interface BankTransaction {
@@ -81,14 +94,14 @@ export interface ApiConfig {
   environment?: 'homologation' | 'production'
   certificateId?: string
   provider?: string
-  autoGenerateExpenses?: boolean // New field for automation
+  autoGenerateExpenses?: boolean
 }
 
 export interface Certificate {
   id: string
   name: string
   expiryDate: string
-  password?: string // Mock storage
+  password?: string
   issuer: string
   status: 'valid' | 'expired' | 'expiring_soon'
 }
@@ -107,7 +120,7 @@ export interface Transaction {
   id: string
   companyId: string
   type: 'revenue' | 'expense'
-  status: TransactionStatus // New Approval Status
+  status: TransactionStatus
   date: string
   description: string
   value: number
@@ -125,10 +138,8 @@ export interface Transaction {
   assetId?: string
   contractId?: string
   isReconciled?: boolean
-  // New fields for manual expense entry
   providerName?: string
   documentNumber?: string
-  // NFS-e fields
   nfseStatus?: 'draft' | 'transmitted' | 'authorized' | 'rejected'
   rpsNumber?: string
   verificationCode?: string
@@ -137,9 +148,7 @@ export interface Transaction {
   issRetained?: boolean
   takerName?: string
   takerCnpj?: string
-  // CIOT fields
   ciotCode?: string
-  // Fleet Fields
   fuelType?: string
   fuelQuantity?: number
   odometer?: number
@@ -169,7 +178,6 @@ export interface ErpState {
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
-  // Actions
   setContext: (companyId: string | 'consolidated') => void
   setUserRole: (role: UserRole) => void
   addCompany: (company: Omit<Company, 'id'>) => void
@@ -188,48 +196,36 @@ export interface ErpState {
   addLalurEntry: (entry: Omit<LalurEntry, 'id'>) => void
   updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
   removeLalurEntry: (id: string) => void
-
-  // Asset Actions
   addAsset: (asset: Omit<Asset, 'id'>) => void
   updateAsset: (id: string, data: Partial<Omit<Asset, 'id'>>) => void
   removeAsset: (id: string) => void
-
-  // Bank Actions
   importBankTransactions: (txs: Omit<BankTransaction, 'id'>[]) => void
   reconcileTransaction: (bankTxId: string, sysTxId: string) => void
-
-  // Closing Actions
   requestClosing: (closing: Omit<ClosingPeriod, 'id'>) => void
   approveClosing: (id: string, approverName: string) => void
   rejectClosing: (id: string) => void
-
-  // Contract Actions
   addContract: (contract: Omit<Contract, 'id'>) => void
   updateContract: (id: string, data: Partial<Omit<Contract, 'id'>>) => void
   removeContract: (id: string) => void
-
-  // Notification Actions
   addNotification: (notification: Omit<Notification, 'id'>) => void
   markNotificationAsRead: (id: string) => void
   clearNotifications: () => void
   checkCertificatesExpiry: () => void
-
-  // Api Config Actions
   updateApiConfig: (config: ApiConfig) => void
   syncSefazExpenses: (targetCnpj: string) => Promise<number>
-
-  // Certificate Actions
   addCertificate: (cert: Omit<Certificate, 'id'>) => void
   removeCertificate: (id: string) => void
-
-  // Log Actions
   addIntegrationLog: (log: Omit<IntegrationLog, 'id'>) => void
-
-  // Getters
   getFilteredTransactions: () => Transaction[]
   getFilteredLalurEntries: () => LalurEntry[]
   getFilteredAssets: () => Asset[]
   getFilteredContracts: () => Contract[]
+}
+
+const extractPlate = (text: string) => {
+  // Matches ABC1234 or ABC1D23
+  const match = text.match(/[A-Z]{3}-?[0-9][0-9A-Z][0-9]{2}/i)
+  return match ? match[0].toUpperCase().replace('-', '') : null
 }
 
 export const useErpStore = create<ErpState>()(
@@ -256,102 +252,32 @@ export const useErpStore = create<ErpState>()(
           city: 'Curitiba',
         },
       ],
-      transactions: [
-        {
-          id: 't1',
-          companyId: 'c1',
-          type: 'revenue',
-          status: 'approved',
-          date: '2024-02-10',
-          description: 'Transporte Carga Pesada SP-PR',
-          value: 12000,
-          cteNumber: '5501',
-          origin: 'SP',
-          destination: 'PR',
-          icmsValue: 1440,
-          pisValue: 198,
-          cofinsValue: 912,
-          isReconciled: false,
-        },
-        {
-          id: 't2',
-          companyId: 'c1',
-          type: 'revenue',
-          status: 'approved',
-          date: '2024-02-11',
-          description: 'Entrega Expressa SP-SP',
-          value: 3500,
-          cteNumber: '5502',
-          origin: 'SP',
-          destination: 'SP',
-          icmsValue: 630,
-          pisValue: 57.75,
-          cofinsValue: 266,
-          isReconciled: false,
-        },
-        {
-          id: 'e1',
-          companyId: 'c1',
-          type: 'expense',
-          status: 'approved',
-          date: '2024-02-05',
-          description: 'Diesel S10',
-          providerName: 'Posto Shell',
-          documentNumber: '102030',
-          value: 4500,
-          category: 'Fuel',
-          fuelType: 'Diesel S10',
-          fuelQuantity: 750,
-          odometer: 125000,
-          isDeductibleIrpjCsll: true,
-          hasCreditPisCofins: true,
-          hasCreditIcms: true,
-          icmsValue: 540,
-          pisValue: 74.25,
-          cofinsValue: 342,
-          isReconciled: false,
-        },
-      ],
+      transactions: [],
       lalurEntries: [],
       assets: [
         {
           id: 'a1',
           companyId: 'c1',
           name: 'Caminhão Volvo FH 540',
+          plate: 'ABC1D23',
           category: 'Vehicle',
           acquisitionDate: '2022-01-15',
           originalValue: 850000,
           residualValue: 150000,
           depreciationRate: 15,
           status: 'Active',
+          lastMaintenanceDate: '2023-12-10',
+          nextMaintenanceDate: '2024-06-10',
+          licensingExpiryDate: '2024-10-15',
+          insuranceExpiryDate: '2024-11-20',
+          averageConsumption: 2.4,
+          lastOdometer: 150000,
         },
       ],
       bankTransactions: [],
       closingPeriods: [],
-      contracts: [
-        {
-          id: 'cnt1',
-          companyId: 'c1',
-          partyName: 'Indústrias Metalúrgicas Ltda',
-          partyRole: 'Customer',
-          type: 'Transport',
-          startDate: '2024-01-01',
-          endDate: '2024-12-31',
-          value: 120000,
-          status: 'Active',
-          terms: 'Pagamento 30 dias após emissão CT-e',
-        },
-      ],
-      notifications: [
-        {
-          id: 'n1',
-          title: 'Alerta de Manutenção',
-          message: 'Veículo Volvo FH 540 requer revisão em 5 dias.',
-          type: 'warning',
-          date: new Date().toISOString(),
-          read: false,
-        },
-      ],
+      contracts: [],
+      notifications: [],
       apiConfigs: [
         {
           id: 'api_sefaz',
@@ -409,35 +335,129 @@ export const useErpStore = create<ErpState>()(
         })),
 
       addTransaction: (transaction) =>
-        set((state) => ({
-          transactions: [
-            ...state.transactions,
-            {
-              ...transaction,
-              status: transaction.status || 'approved', // Default to approved if manual
-              id: Math.random().toString(36).substring(2, 9),
-              isReconciled: false,
-            },
-          ],
-          notifications: [
-            ...state.notifications,
-            {
-              id: Math.random().toString(36).substring(2, 9),
-              title: 'Nova Movimentação',
-              message: `Registro ${transaction.type === 'revenue' ? 'Receita' : 'Despesa'} de ${transaction.value} adicionado.`,
-              type: 'info',
-              date: new Date().toISOString(),
-              read: false,
-            },
-          ],
-        })),
+        set((state) => {
+          const newTx = {
+            ...transaction,
+            status: transaction.status || 'approved',
+            id: Math.random().toString(36).substring(2, 9),
+            isReconciled: false,
+          }
+
+          // Auto-link Asset by Plate
+          if (!newTx.assetId && newTx.description) {
+            const plate = extractPlate(newTx.description)
+            if (plate) {
+              const asset = state.assets.find((a) => a.plate === plate)
+              if (asset) newTx.assetId = asset.id
+            }
+          }
+
+          let updatedAssets = state.assets
+          // Process Asset Updates
+          if (newTx.assetId) {
+            updatedAssets = state.assets.map((asset) => {
+              if (asset.id !== newTx.assetId) return asset
+
+              const updates: Partial<Asset> = {}
+
+              // Maintenance Logic
+              if (newTx.category === 'Maintenance') {
+                if (newTx.status === 'pending') {
+                  updates.status = 'In Maintenance'
+                } else if (newTx.status === 'approved') {
+                  updates.lastMaintenanceDate = newTx.date
+                  updates.status = 'Active'
+                  const nextDate = new Date(newTx.date)
+                  nextDate.setMonth(nextDate.getMonth() + 6)
+                  updates.nextMaintenanceDate = nextDate
+                    .toISOString()
+                    .split('T')[0]
+                }
+              }
+
+              // Fuel Logic
+              if (
+                newTx.category === 'Fuel' &&
+                newTx.odometer &&
+                newTx.fuelQuantity
+              ) {
+                if (asset.lastOdometer && newTx.odometer > asset.lastOdometer) {
+                  const dist = newTx.odometer - asset.lastOdometer
+                  const eff = dist / newTx.fuelQuantity
+                  // Moving average calculation
+                  updates.averageConsumption = asset.averageConsumption
+                    ? parseFloat(
+                        ((asset.averageConsumption + eff) / 2).toFixed(2),
+                      )
+                    : parseFloat(eff.toFixed(2))
+                }
+                updates.lastOdometer = newTx.odometer
+              }
+
+              return { ...asset, ...updates }
+            })
+          }
+
+          return {
+            transactions: [...state.transactions, newTx],
+            assets: updatedAssets,
+            notifications: [
+              ...state.notifications,
+              {
+                id: Math.random().toString(36).substring(2, 9),
+                title: 'Nova Movimentação',
+                message: `Registro ${newTx.type === 'revenue' ? 'Receita' : 'Despesa'} de ${newTx.value} adicionado.`,
+                type: 'info',
+                date: new Date().toISOString(),
+                read: false,
+              },
+            ],
+          }
+        }),
 
       updateTransaction: (id, data) =>
-        set((state) => ({
-          transactions: state.transactions.map((t) =>
-            t.id === id ? { ...t, ...data } : t,
-          ),
-        })),
+        set((state) => {
+          const oldTx = state.transactions.find((t) => t.id === id)
+          if (!oldTx) return state
+
+          const updatedTx = { ...oldTx, ...data }
+          let updatedAssets = state.assets
+
+          // Handle Maintenance Approval/Rejection effects on Asset
+          if (
+            updatedTx.assetId &&
+            updatedTx.category === 'Maintenance' &&
+            oldTx.status !== updatedTx.status
+          ) {
+            updatedAssets = state.assets.map((asset) => {
+              if (asset.id !== updatedTx.assetId) return asset
+
+              const updates: Partial<Asset> = {}
+              if (updatedTx.status === 'approved') {
+                updates.lastMaintenanceDate = updatedTx.date
+                updates.status = 'Active'
+                const nextDate = new Date(updatedTx.date)
+                nextDate.setMonth(nextDate.getMonth() + 6)
+                updates.nextMaintenanceDate = nextDate
+                  .toISOString()
+                  .split('T')[0]
+              } else if (updatedTx.status === 'rejected') {
+                // If rejected, remove "In Maintenance" status if it was set
+                if (asset.status === 'In Maintenance') {
+                  updates.status = 'Active'
+                }
+              }
+              return { ...asset, ...updates }
+            })
+          }
+
+          return {
+            transactions: state.transactions.map((t) =>
+              t.id === id ? updatedTx : t,
+            ),
+            assets: updatedAssets,
+          }
+        }),
 
       removeTransaction: (id) =>
         set((state) => ({
@@ -598,6 +618,7 @@ export const useErpStore = create<ErpState>()(
           const today = new Date()
           const newNotifications: Notification[] = []
 
+          // Check Certificates
           state.certificates.forEach((cert) => {
             const expiry = new Date(cert.expiryDate)
             const diffTime = expiry.getTime() - today.getTime()
@@ -622,9 +643,54 @@ export const useErpStore = create<ErpState>()(
             else if (diffDays <= 7 && diffDays >= 0) createAlert(7)
           })
 
-          if (newNotifications.length > 0) {
+          // Check Asset Documents
+          let updatedAssets = state.assets
+          let assetsChanged = false
+
+          updatedAssets = state.assets.map((asset) => {
+            let status = asset.status
+            const checks = [
+              { date: asset.licensingExpiryDate, type: 'Licenciamento' },
+              { date: asset.insuranceExpiryDate, type: 'Seguro' },
+            ]
+
+            let hasExpired = false
+
+            checks.forEach((check) => {
+              if (check.date) {
+                const expiry = new Date(check.date)
+                const diffTime = expiry.getTime() - today.getTime()
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+                if (diffDays < 0) hasExpired = true
+
+                if (diffDays <= 30 && diffDays >= 0) {
+                  const alertId = `asset-${asset.id}-${check.type}-exp`
+                  if (!state.notifications.some((n) => n.id === alertId)) {
+                    newNotifications.push({
+                      id: alertId,
+                      title: `Documento Vencendo`,
+                      message: `${check.type} do ativo ${asset.plate || asset.name} vence em ${diffDays} dias.`,
+                      type: 'warning',
+                      date: new Date().toISOString(),
+                      read: false,
+                    })
+                  }
+                }
+              }
+            })
+
+            if (hasExpired && status !== 'Doc Pending') {
+              status = 'Doc Pending'
+              assetsChanged = true
+            }
+            return { ...asset, status }
+          })
+
+          if (newNotifications.length > 0 || assetsChanged) {
             return {
               notifications: [...newNotifications, ...state.notifications],
+              assets: assetsChanged ? updatedAssets : state.assets,
             }
           }
           return {}
@@ -646,7 +712,7 @@ export const useErpStore = create<ErpState>()(
         }),
 
       syncSefazExpenses: async (targetCnpj) => {
-        const { transactions, apiConfigs } = get()
+        const { transactions, apiConfigs, assets } = get()
         const sefazConfig = apiConfigs.find((c) => c.type === 'fiscal')
 
         if (!sefazConfig?.isActive) {
@@ -678,16 +744,18 @@ export const useErpStore = create<ErpState>()(
           return 'Uncategorized'
         }
 
-        // Mock Fuel Invoice
+        // Mock Fuel Invoice with Plate
         const fuelDoc = '550' + Math.floor(Math.random() * 1000)
         if (!transactions.some((t) => t.documentNumber === fuelDoc)) {
-          const desc = 'Abastecimento Automático - Diesel S10'
+          // Use a plate from existing assets to demonstrate linking
+          const demoPlate = assets[0]?.plate || 'ABC1D23'
+          const desc = `Abastecimento Diesel S10 - Placa ${demoPlate}`
           const cat = categorize(desc)
           newExpenses.push({
             id: Math.random().toString(36).substring(2, 9),
             companyId: 'c1',
             type: 'expense',
-            status: 'pending', // Pending Approval
+            status: 'pending',
             date: today,
             description: desc,
             providerName: 'Posto Rede VIP',
@@ -702,43 +770,47 @@ export const useErpStore = create<ErpState>()(
             cofinsValue: 95.0,
             isReconciled: false,
             takerCnpj: targetCnpj,
-            // Fleet fields
             fuelType: 'Diesel S10',
-            fuelQuantity: 200, // Mock auto extraction
-            odometer: 0, // Unknown
-          })
-        }
-
-        // Mock Service Invoice
-        const serviceDoc = '2024' + Math.floor(Math.random() * 1000)
-        if (!transactions.some((t) => t.documentNumber === serviceDoc)) {
-          const desc = 'Manutenção Freios - Serviço Terceirizado'
-          const cat = categorize(desc)
-          newExpenses.push({
-            id: Math.random().toString(36).substring(2, 9),
-            companyId: 'c1',
-            type: 'expense',
-            status: 'pending', // Pending Approval
-            date: today,
-            description: desc,
-            providerName: 'Oficina Truck Center',
-            documentNumber: serviceDoc,
-            value: 850.0,
-            category: cat,
-            isDeductibleIrpjCsll: true,
-            hasCreditPisCofins: true,
-            hasCreditIcms: false,
-            icmsValue: 0,
-            pisValue: 5.52,
-            cofinsValue: 25.5,
-            isReconciled: false,
-            takerCnpj: targetCnpj,
+            fuelQuantity: 200,
+            odometer: (assets[0]?.lastOdometer || 150000) + 500, // Simulate progress
           })
         }
 
         if (newExpenses.length > 0) {
+          // We call addTransaction for each to trigger the store logic (linking)
+          // But addTransaction updates state directly, so we need to be careful inside the loop
+          // Actually, we can just return the count and let the caller handle UI,
+          // but we need to update state.
+          // Since `syncSefazExpenses` is inside the store, we can update state directly.
+          // But to reuse logic of `addTransaction`, we should manually invoke similar logic.
+          // For simplicity, let's just append to transactions and run linking logic here.
+
+          let updatedAssets = assets
+
+          newExpenses.forEach((tx) => {
+            // Auto-link
+            if (!tx.assetId && tx.description) {
+              const plate = extractPlate(tx.description)
+              if (plate) {
+                const asset = updatedAssets.find((a) => a.plate === plate)
+                if (asset) tx.assetId = asset.id
+              }
+            }
+            // Logic for auto updates (e.g. status) is normally on 'addTransaction'.
+            // For now, let's assume they come as pending and no immediate asset update is needed
+            // until approval, EXCEPT for status 'In Maintenance' if pending maintenance.
+            if (tx.category === 'Maintenance' && tx.status === 'pending') {
+              if (tx.assetId) {
+                updatedAssets = updatedAssets.map((a) =>
+                  a.id === tx.assetId ? { ...a, status: 'In Maintenance' } : a,
+                )
+              }
+            }
+          })
+
           set((state) => ({
             transactions: [...state.transactions, ...newExpenses],
+            assets: updatedAssets,
             integrationLogs: [
               {
                 id: Math.random().toString(36).substring(2, 9),

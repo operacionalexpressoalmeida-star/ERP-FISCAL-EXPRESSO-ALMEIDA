@@ -1,11 +1,5 @@
 import { useErpStore, Asset } from '@/stores/useErpStore'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -15,7 +9,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2, PenTool } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  PenTool,
+  AlertTriangle,
+  FileText,
+} from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -55,16 +56,26 @@ import {
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { PaginationControls } from '@/components/PaginationControls'
+import { Badge } from '@/components/ui/badge'
 
 const assetSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
   name: z.string().min(3),
+  plate: z.string().optional(),
   category: z.enum(['Vehicle', 'Machinery', 'Equipment', 'Other']),
   acquisitionDate: z.string(),
   originalValue: z.coerce.number().min(0.01),
   residualValue: z.coerce.number().min(0),
   depreciationRate: z.coerce.number().min(0).max(100),
-  status: z.enum(['Active', 'Sold', 'WrittenOff']),
+  status: z.enum([
+    'Active',
+    'Sold',
+    'WrittenOff',
+    'In Maintenance',
+    'Doc Pending',
+  ]),
+  licensingExpiryDate: z.string().optional(),
+  insuranceExpiryDate: z.string().optional(),
 })
 
 const ITEMS_PER_PAGE = 10
@@ -72,6 +83,7 @@ const ITEMS_PER_PAGE = 10
 export default function AssetList() {
   const {
     getFilteredAssets,
+    getFilteredTransactions,
     addAsset,
     updateAsset,
     removeAsset,
@@ -79,9 +91,11 @@ export default function AssetList() {
     selectedCompanyId,
     userRole,
     addTransaction,
+    checkCertificatesExpiry,
   } = useErpStore()
 
   const assets = getFilteredAssets()
+  const transactions = getFilteredTransactions()
   const [currentPage, setCurrentPage] = useState(1)
   const totalPages = Math.ceil(assets.length / ITEMS_PER_PAGE)
 
@@ -89,6 +103,11 @@ export default function AssetList() {
   const [isMaintDialogOpen, setIsMaintDialogOpen] = useState(false)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [assetToDelete, setAssetToDelete] = useState<Asset | null>(null)
+
+  // Run expiry check on mount
+  useEffect(() => {
+    checkCertificatesExpiry()
+  }, [checkCertificatesExpiry])
 
   const form = useForm<z.infer<typeof assetSchema>>({
     resolver: zodResolver(assetSchema),
@@ -110,18 +129,26 @@ export default function AssetList() {
 
   useEffect(() => {
     if (selectedAsset && !isMaintDialogOpen) {
-      form.reset(selectedAsset)
+      form.reset({
+        ...selectedAsset,
+        plate: selectedAsset.plate || '',
+        licensingExpiryDate: selectedAsset.licensingExpiryDate || '',
+        insuranceExpiryDate: selectedAsset.insuranceExpiryDate || '',
+      })
     } else if (!isMaintDialogOpen) {
       form.reset({
         companyId:
           selectedCompanyId !== 'consolidated' ? selectedCompanyId : '',
         name: '',
+        plate: '',
         acquisitionDate: new Date().toISOString().split('T')[0],
         originalValue: 0,
         residualValue: 0,
         depreciationRate: 10,
         status: 'Active',
         category: 'Vehicle',
+        licensingExpiryDate: '',
+        insuranceExpiryDate: '',
       })
     }
   }, [selectedAsset, form, selectedCompanyId, isMaintDialogOpen])
@@ -136,6 +163,23 @@ export default function AssetList() {
       depreciableAmount * (asset.depreciationRate / 100) * years
     return Math.min(depreciation, depreciableAmount)
   }
+
+  // Calculate Monthly Maintenance
+  const currentMonthMaintenance = transactions
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        t.category === 'Maintenance' &&
+        new Date(t.date).getMonth() === new Date().getMonth() &&
+        new Date(t.date).getFullYear() === new Date().getFullYear(),
+    )
+    .reduce((acc, t) => acc + t.value, 0)
+
+  // Calculate Fleet Value
+  const totalFleetValue = assets.reduce(
+    (a, b) => a + (b.originalValue - calculateDepreciation(b)),
+    0,
+  )
 
   function onSubmit(values: z.infer<typeof assetSchema>) {
     if (selectedAsset) {
@@ -163,13 +207,14 @@ export default function AssetList() {
         value: Number(values.value),
         date: values.date,
         assetId: selectedAsset.id,
+        status: 'approved', // Auto approve from asset screen?
         icmsValue: 0,
         pisValue: 0,
         cofinsValue: 0,
       })
       toast({
         title: 'Manutenção Registrada',
-        description: 'Despesa criada com sucesso.',
+        description: 'Despesa criada e histórico atualizado.',
       })
       setIsMaintDialogOpen(false)
       setSelectedAsset(null)
@@ -185,6 +230,23 @@ export default function AssetList() {
     }
   }
 
+  const getStatusBadge = (status: Asset['status']) => {
+    switch (status) {
+      case 'Active':
+        return <Badge className="bg-emerald-600">Ativo</Badge>
+      case 'In Maintenance':
+        return <Badge className="bg-amber-600">Em Manutenção</Badge>
+      case 'Doc Pending':
+        return <Badge className="bg-rose-600">Doc. Pendente</Badge>
+      case 'Sold':
+        return <Badge variant="secondary">Vendido</Badge>
+      case 'WrittenOff':
+        return <Badge variant="destructive">Baixado</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
   const currentData = assets.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
@@ -195,10 +257,10 @@ export default function AssetList() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Ativos Imobilizados
+            Gestão de Frota e Ativos
           </h1>
           <p className="text-muted-foreground">
-            Controle de frota, máquinas e equipamentos.
+            Controle automatizado de manutenção, documentos e custos.
           </p>
         </div>
         {userRole === 'admin' && (
@@ -216,49 +278,40 @@ export default function AssetList() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Valor Total (Original)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(assets.reduce((a, b) => a + b.originalValue, 0))}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Depreciação Acumulada</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-rose-600">
-              {formatCurrency(
-                assets.reduce((a, b) => a + calculateDepreciation(b), 0),
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Valor Contábil Atual</CardTitle>
+            <CardTitle className="text-sm">Valor Total da Frota</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">
-              {formatCurrency(
-                assets.reduce(
-                  (a, b) => a + (b.originalValue - calculateDepreciation(b)),
-                  0,
-                ),
-              )}
+              {formatCurrency(totalFleetValue)}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Total de Veículos</CardTitle>
+            <CardTitle className="text-sm">Manutenção (Mês Atual)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">
+              {formatCurrency(currentMonthMaintenance)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Veículos em Manutenção</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {assets.filter((a) => a.category === 'Vehicle').length}
+              {assets.filter((a) => a.status === 'In Maintenance').length}
             </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Total de Ativos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{assets.length}</div>
           </CardContent>
         </Card>
       </div>
@@ -266,19 +319,17 @@ export default function AssetList() {
       <Card>
         <CardHeader>
           <CardTitle>Listagem de Bens</CardTitle>
-          <CardDescription>Bens ativos e inativos da empresa.</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Bem</TableHead>
+                <TableHead>Bem / Placa</TableHead>
                 <TableHead>Categoria</TableHead>
-                <TableHead>Aquisição</TableHead>
-                <TableHead className="text-right">Valor Original</TableHead>
-                <TableHead className="text-right">Depreciação</TableHead>
+                <TableHead>Próx. Manutenção</TableHead>
+                <TableHead>Consumo Médio</TableHead>
                 <TableHead className="text-right">Valor Atual</TableHead>
-                <TableHead className="text-right">Status</TableHead>
+                <TableHead className="text-center">Status</TableHead>
                 {userRole === 'admin' && <TableHead className="w-[120px]" />}
               </TableRow>
             </TableHeader>
@@ -286,31 +337,58 @@ export default function AssetList() {
               {currentData.map((asset) => {
                 const depreciation = calculateDepreciation(asset)
                 const currentVal = asset.originalValue - depreciation
+                const isOverdue =
+                  asset.nextMaintenanceDate &&
+                  new Date(asset.nextMaintenanceDate) < new Date()
+
                 return (
                   <TableRow key={asset.id}>
-                    <TableCell className="font-medium">{asset.name}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{asset.name}</span>
+                        {asset.plate && (
+                          <span className="text-xs text-muted-foreground font-mono bg-muted px-1 rounded w-fit">
+                            {asset.plate}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{asset.category}</TableCell>
                     <TableCell>
-                      {new Date(asset.acquisitionDate).toLocaleDateString(
-                        'pt-BR',
+                      {asset.nextMaintenanceDate ? (
+                        <div
+                          className={`flex items-center gap-1 ${isOverdue ? 'text-rose-600 font-bold' : ''}`}
+                        >
+                          {isOverdue && <AlertTriangle className="h-3 w-3" />}
+                          {new Date(
+                            asset.nextMaintenanceDate,
+                          ).toLocaleDateString('pt-BR')}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(asset.originalValue)}
+                    <TableCell>
+                      {asset.averageConsumption ? (
+                        <span className="font-mono">
+                          {asset.averageConsumption} km/L
+                        </span>
+                      ) : (
+                        '-'
+                      )}
                     </TableCell>
-                    <TableCell className="text-right text-rose-600">
-                      -{formatCurrency(depreciation)}
-                    </TableCell>
-                    <TableCell className="text-right text-emerald-600 font-bold">
+                    <TableCell className="text-right font-medium">
                       {formatCurrency(currentVal)}
                     </TableCell>
-                    <TableCell className="text-right">{asset.status}</TableCell>
+                    <TableCell className="text-center">
+                      {getStatusBadge(asset.status)}
+                    </TableCell>
                     {userRole === 'admin' && (
                       <TableCell className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="icon"
-                          title="Manutenção"
+                          title="Lançar Manutenção"
                           onClick={() => {
                             setSelectedAsset(asset)
                             setIsMaintDialogOpen(true)
@@ -353,7 +431,7 @@ export default function AssetList() {
 
       {/* Asset Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {selectedAsset ? 'Editar Ativo' : 'Registrar Ativo'}
@@ -419,19 +497,72 @@ export default function AssetList() {
                   )}
                 />
               </div>
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Descrição do Bem</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Descrição do Bem</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="plate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Placa / Identificador</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="ABC1234" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="bg-muted/30 p-4 rounded-md border space-y-4">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Controle de Documentação
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="licensingExpiryDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vencimento Licenciamento/IPVA</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="insuranceExpiryDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vencimento Seguro</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
@@ -473,7 +604,7 @@ export default function AssetList() {
                   )}
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="depreciationRate"
@@ -504,6 +635,12 @@ export default function AssetList() {
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Active">Ativo</SelectItem>
+                          <SelectItem value="In Maintenance">
+                            Em Manutenção
+                          </SelectItem>
+                          <SelectItem value="Doc Pending">
+                            Doc. Pendente
+                          </SelectItem>
                           <SelectItem value="Sold">Vendido</SelectItem>
                           <SelectItem value="WrittenOff">Baixado</SelectItem>
                         </SelectContent>
