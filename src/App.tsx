@@ -19,6 +19,8 @@ import BankReconciliation from './pages/financial/BankReconciliation'
 import TaxReports from './pages/reports/TaxReports'
 import CustomDashboard from './pages/reports/CustomDashboard'
 import ApprovalsPage from './pages/admin/ApprovalsPage'
+import ContractList from './pages/contracts/ContractList'
+import IntegrationCenter from './pages/admin/IntegrationCenter'
 
 const App = () => (
   <BrowserRouter
@@ -34,6 +36,7 @@ const App = () => (
           <Route path="/operations/cte" element={<CTeList />} />
           <Route path="/operations/expenses" element={<ExpenseList />} />
           <Route path="/assets" element={<AssetList />} />
+          <Route path="/contracts" element={<ContractList />} />
           <Route
             path="/financial/reconciliation"
             element={<BankReconciliation />}
@@ -47,6 +50,7 @@ const App = () => (
             element={<CustomDashboard />}
           />
           <Route path="/admin/approvals" element={<ApprovalsPage />} />
+          <Route path="/admin/integrations" element={<IntegrationCenter />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Link as LinkIcon } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -55,6 +55,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { PaginationControls } from '@/components/PaginationControls'
+import { Badge } from '@/components/ui/badge'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -65,11 +67,15 @@ const expenseSchema = z.object({
   isDeductibleIrpjCsll: z.boolean().default(false),
   hasCreditPisCofins: z.boolean().default(false),
   hasCreditIcms: z.boolean().default(false),
+  contractId: z.string().optional(),
 })
+
+const ITEMS_PER_PAGE = 10
 
 export default function ExpenseList() {
   const {
     getFilteredTransactions,
+    getFilteredContracts,
     addTransaction,
     updateTransaction,
     removeTransaction,
@@ -77,9 +83,17 @@ export default function ExpenseList() {
     selectedCompanyId,
     userRole,
   } = useErpStore()
+
   const transactions = getFilteredTransactions().filter(
     (t) => t.type === 'expense',
   )
+  const contracts = getFilteredContracts().filter(
+    (c) => c.status === 'Active' && c.partyRole === 'Supplier',
+  )
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE)
+
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null)
@@ -108,6 +122,7 @@ export default function ExpenseList() {
         isDeductibleIrpjCsll: selectedTransaction.isDeductibleIrpjCsll || false,
         hasCreditPisCofins: selectedTransaction.hasCreditPisCofins || false,
         hasCreditIcms: selectedTransaction.hasCreditIcms || false,
+        contractId: selectedTransaction.contractId || '',
       })
     } else {
       form.reset({
@@ -120,6 +135,7 @@ export default function ExpenseList() {
         isDeductibleIrpjCsll: true,
         hasCreditPisCofins: true,
         hasCreditIcms: false,
+        contractId: '',
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
@@ -137,6 +153,7 @@ export default function ExpenseList() {
         pisValue,
         cofinsValue,
         icmsValue,
+        contractId: values.contractId || undefined,
       })
       toast({
         title: 'Despesa Atualizada',
@@ -149,6 +166,7 @@ export default function ExpenseList() {
         pisValue,
         cofinsValue,
         icmsValue,
+        contractId: values.contractId || undefined,
       })
       toast({
         title: 'Despesa Lançada',
@@ -180,6 +198,11 @@ export default function ExpenseList() {
     setSelectedTransaction(null)
     setIsDialogOpen(true)
   }
+
+  const currentData = transactions.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  )
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
@@ -271,19 +294,51 @@ export default function ExpenseList() {
                   )}
                 />
               </div>
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Descrição</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="contractId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Contrato Fornecedor</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Opcional" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">Nenhum</SelectItem>
+                          {contracts.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.partyName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Descrição</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -410,19 +465,28 @@ export default function ExpenseList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Categoria</TableHead>
+                <TableHead>Contrato</TableHead>
                 <TableHead className="text-center">Fiscal</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 {userRole === 'admin' && <TableHead className="w-[100px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.map((t) => (
+              {currentData.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
                     {new Date(t.date).toLocaleDateString('pt-BR')}
                   </TableCell>
                   <TableCell>{t.description}</TableCell>
                   <TableCell>{t.category}</TableCell>
+                  <TableCell>
+                    {t.contractId && (
+                      <Badge variant="outline" className="text-xs">
+                        <LinkIcon className="w-3 h-3 mr-1" />
+                        Vinculado
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-center text-xs">
                     {t.isDeductibleIrpjCsll && (
                       <span className="bg-green-100 text-green-800 px-1 rounded mr-1">
@@ -459,10 +523,10 @@ export default function ExpenseList() {
                   )}
                 </TableRow>
               ))}
-              {transactions.length === 0 && (
+              {currentData.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={userRole === 'admin' ? 6 : 5}
+                    colSpan={userRole === 'admin' ? 7 : 6}
                     className="text-center h-24 text-muted-foreground"
                   >
                     Nenhum registro encontrado.
@@ -471,6 +535,11 @@ export default function ExpenseList() {
               )}
             </TableBody>
           </Table>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
     </div>

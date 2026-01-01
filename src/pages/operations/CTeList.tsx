@@ -15,7 +15,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2, RefreshCw, Upload } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Upload,
+  Link as LinkIcon,
+} from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -56,6 +63,8 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
 import { ParsedFiscalDoc } from '@/lib/xml-parser'
+import { PaginationControls } from '@/components/PaginationControls'
+import { Badge } from '@/components/ui/badge'
 
 const cteSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -68,11 +77,15 @@ const cteSchema = z.object({
   icmsValue: z.coerce.number().min(0),
   pisValue: z.coerce.number().min(0),
   cofinsValue: z.coerce.number().min(0),
+  contractId: z.string().optional(),
 })
+
+const ITEMS_PER_PAGE = 10
 
 export default function CTeList() {
   const {
     getFilteredTransactions,
+    getFilteredContracts,
     addTransaction,
     updateTransaction,
     removeTransaction,
@@ -80,9 +93,17 @@ export default function CTeList() {
     selectedCompanyId,
     userRole,
   } = useErpStore()
+
   const transactions = getFilteredTransactions().filter(
     (t) => t.type === 'revenue',
   )
+  const contracts = getFilteredContracts().filter(
+    (c) => c.status === 'Active' && c.partyRole === 'Customer',
+  )
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE)
+
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
@@ -158,6 +179,7 @@ export default function CTeList() {
         icmsValue: selectedTransaction.icmsValue,
         pisValue: selectedTransaction.pisValue,
         cofinsValue: selectedTransaction.cofinsValue,
+        contractId: selectedTransaction.contractId || '',
       })
     } else {
       form.reset({
@@ -172,6 +194,7 @@ export default function CTeList() {
         icmsValue: 0,
         pisValue: 0,
         cofinsValue: 0,
+        contractId: '',
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
@@ -183,6 +206,7 @@ export default function CTeList() {
         type: 'revenue',
         origin: values.origin.toUpperCase(),
         destination: values.destination.toUpperCase(),
+        contractId: values.contractId || undefined,
       })
       toast({
         title: 'CT-e Atualizado',
@@ -194,6 +218,7 @@ export default function CTeList() {
         type: 'revenue',
         origin: values.origin.toUpperCase(),
         destination: values.destination.toUpperCase(),
+        contractId: values.contractId || undefined,
       })
       toast({
         title: 'CT-e Registrado',
@@ -257,6 +282,11 @@ export default function CTeList() {
     setSelectedTransaction(null)
     setIsDialogOpen(true)
   }
+
+  const currentData = transactions.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  )
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
@@ -337,6 +367,37 @@ export default function CTeList() {
                 />
                 <FormField
                   control={form.control}
+                  name="contractId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vincular Contrato</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Opcional" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">Nenhum</SelectItem>
+                          {contracts.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.partyName} - {formatCurrency(c.value)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
                   name="cteNumber"
                   render={({ field }) => (
                     <FormItem>
@@ -348,23 +409,24 @@ export default function CTeList() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Descrição</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Ex: Frete Carga Fracionada"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Descrição</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Ex: Frete Carga Fracionada"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
@@ -535,13 +597,14 @@ export default function CTeList() {
                 <TableHead>CT-e</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Rota</TableHead>
+                <TableHead>Contrato</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="text-right">Impostos (Est.)</TableHead>
                 {userRole === 'admin' && <TableHead className="w-[100px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.map((t) => (
+              {currentData.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
                     {new Date(t.date).toLocaleDateString('pt-BR')}
@@ -550,6 +613,14 @@ export default function CTeList() {
                   <TableCell>{t.description}</TableCell>
                   <TableCell>
                     {t.origin} {'->'} {t.destination}
+                  </TableCell>
+                  <TableCell>
+                    {t.contractId && (
+                      <Badge variant="outline" className="text-xs">
+                        <LinkIcon className="w-3 h-3 mr-1" />
+                        Vinculado
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium text-emerald-600">
                     {formatCurrency(t.value)}
@@ -580,10 +651,10 @@ export default function CTeList() {
                   )}
                 </TableRow>
               ))}
-              {transactions.length === 0 && (
+              {currentData.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={userRole === 'admin' ? 7 : 6}
+                    colSpan={userRole === 'admin' ? 8 : 7}
                     className="text-center h-24 text-muted-foreground"
                   >
                     Nenhum registro encontrado.
@@ -592,6 +663,11 @@ export default function CTeList() {
               )}
             </TableBody>
           </Table>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
     </div>

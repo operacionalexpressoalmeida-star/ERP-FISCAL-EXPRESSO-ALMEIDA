@@ -47,6 +47,37 @@ export interface ClosingPeriod {
   approvedAt?: string
 }
 
+export interface Contract {
+  id: string
+  companyId: string
+  partyName: string
+  partyRole: 'Customer' | 'Supplier'
+  type: 'Service' | 'Transport' | 'Lease'
+  startDate: string
+  endDate: string
+  value: number
+  status: 'Active' | 'Expired' | 'Draft'
+  terms: string
+}
+
+export interface Notification {
+  id: string
+  title: string
+  message: string
+  type: 'info' | 'warning' | 'error' | 'success'
+  date: string
+  read: boolean
+}
+
+export interface ApiConfig {
+  id: string
+  serviceName: string
+  endpoint: string
+  apiKey: string
+  isActive: boolean
+  lastSync?: string
+}
+
 export interface Transaction {
   id: string
   companyId: string
@@ -65,8 +96,8 @@ export interface Transaction {
   pisValue: number
   cofinsValue: number
   issValue?: number
-  // New fields
   assetId?: string
+  contractId?: string
   isReconciled?: boolean
 }
 
@@ -86,6 +117,9 @@ export interface ErpState {
   assets: Asset[]
   bankTransactions: BankTransaction[]
   closingPeriods: ClosingPeriod[]
+  contracts: Contract[]
+  notifications: Notification[]
+  apiConfigs: ApiConfig[]
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
@@ -105,21 +139,38 @@ export interface ErpState {
   updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
   removeLalurEntry: (id: string) => void
 
-  // New Actions
+  // Asset Actions
   addAsset: (asset: Omit<Asset, 'id'>) => void
   updateAsset: (id: string, data: Partial<Omit<Asset, 'id'>>) => void
   removeAsset: (id: string) => void
 
+  // Bank Actions
   importBankTransactions: (txs: Omit<BankTransaction, 'id'>[]) => void
   reconcileTransaction: (bankTxId: string, sysTxId: string) => void
 
+  // Closing Actions
   requestClosing: (closing: Omit<ClosingPeriod, 'id'>) => void
   approveClosing: (id: string, approverName: string) => void
   rejectClosing: (id: string) => void
 
+  // Contract Actions
+  addContract: (contract: Omit<Contract, 'id'>) => void
+  updateContract: (id: string, data: Partial<Omit<Contract, 'id'>>) => void
+  removeContract: (id: string) => void
+
+  // Notification Actions
+  addNotification: (notification: Omit<Notification, 'id'>) => void
+  markNotificationAsRead: (id: string) => void
+  clearNotifications: () => void
+
+  // Api Config Actions
+  updateApiConfig: (config: ApiConfig) => void
+
+  // Getters
   getFilteredTransactions: () => Transaction[]
   getFilteredLalurEntries: () => LalurEntry[]
   getFilteredAssets: () => Asset[]
+  getFilteredContracts: () => Contract[]
 }
 
 export const useErpStore = create<ErpState>()(
@@ -210,6 +261,48 @@ export const useErpStore = create<ErpState>()(
       ],
       bankTransactions: [],
       closingPeriods: [],
+      contracts: [
+        {
+          id: 'cnt1',
+          companyId: 'c1',
+          partyName: 'Indústrias Metalúrgicas Ltda',
+          partyRole: 'Customer',
+          type: 'Transport',
+          startDate: '2024-01-01',
+          endDate: '2024-12-31',
+          value: 120000,
+          status: 'Active',
+          terms: 'Pagamento 30 dias após emissão CT-e',
+        },
+      ],
+      notifications: [
+        {
+          id: 'n1',
+          title: 'Alerta de Manutenção',
+          message: 'Veículo Volvo FH 540 requer revisão em 5 dias.',
+          type: 'warning',
+          date: new Date().toISOString(),
+          read: false,
+        },
+        {
+          id: 'n2',
+          title: 'Imposto a Vencer',
+          message: 'DARF PIS/COFINS vence amanhã.',
+          type: 'error',
+          date: new Date().toISOString(),
+          read: false,
+        },
+      ],
+      apiConfigs: [
+        {
+          id: 'api1',
+          serviceName: 'Omnilink Rastreamento',
+          endpoint: 'https://api.omnilink.com.br/v1',
+          apiKey: '****************',
+          isActive: true,
+          lastSync: new Date().toISOString(),
+        },
+      ],
 
       setContext: (id) => set({ selectedCompanyId: id }),
       setUserRole: (role) => set({ userRole: role }),
@@ -242,6 +335,18 @@ export const useErpStore = create<ErpState>()(
               ...transaction,
               id: Math.random().toString(36).substring(2, 9),
               isReconciled: false,
+            },
+          ],
+          // Proactive Alert Logic Mock
+          notifications: [
+            ...state.notifications,
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: 'Nova Movimentação',
+              message: `Registro ${transaction.type === 'revenue' ? 'Receita' : 'Despesa'} de ${transaction.value} adicionado.`,
+              type: 'info',
+              date: new Date().toISOString(),
+              read: false,
             },
           ],
         })),
@@ -278,7 +383,6 @@ export const useErpStore = create<ErpState>()(
           lalurEntries: state.lalurEntries.filter((e) => e.id !== id),
         })),
 
-      // New Action Implementations
       addAsset: (asset) =>
         set((state) => ({
           assets: [
@@ -333,6 +437,17 @@ export const useErpStore = create<ErpState>()(
               status: 'pending',
             },
           ],
+          notifications: [
+            ...state.notifications,
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: 'Aprovação Necessária',
+              message: `Fechamento ${closing.month}/${closing.year} pendente.`,
+              type: 'warning',
+              date: new Date().toISOString(),
+              read: false,
+            },
+          ],
         })),
 
       approveClosing: (id, approverName) =>
@@ -356,6 +471,65 @@ export const useErpStore = create<ErpState>()(
           ),
         })),
 
+      // Contract Actions Implementation
+      addContract: (contract) =>
+        set((state) => ({
+          contracts: [
+            ...state.contracts,
+            { ...contract, id: Math.random().toString(36).substring(2, 9) },
+          ],
+        })),
+
+      updateContract: (id, data) =>
+        set((state) => ({
+          contracts: state.contracts.map((c) =>
+            c.id === id ? { ...c, ...data } : c,
+          ),
+        })),
+
+      removeContract: (id) =>
+        set((state) => ({
+          contracts: state.contracts.filter((c) => c.id !== id),
+        })),
+
+      // Notification Actions Implementation
+      addNotification: (notification) =>
+        set((state) => ({
+          notifications: [
+            {
+              ...notification,
+              id: Math.random().toString(36).substring(2, 9),
+              read: false,
+            },
+            ...state.notifications,
+          ],
+        })),
+
+      markNotificationAsRead: (id) =>
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.id === id ? { ...n, read: true } : n,
+          ),
+        })),
+
+      clearNotifications: () => set({ notifications: [] }),
+
+      // API Config Actions Implementation
+      updateApiConfig: (config) =>
+        set((state) => {
+          const exists = state.apiConfigs.find((c) => c.id === config.id)
+          if (exists) {
+            return {
+              apiConfigs: state.apiConfigs.map((c) =>
+                c.id === config.id ? config : c,
+              ),
+            }
+          }
+          return {
+            apiConfigs: [...state.apiConfigs, config],
+          }
+        }),
+
       getFilteredTransactions: () => {
         const { transactions, selectedCompanyId } = get()
         if (selectedCompanyId === 'consolidated') return transactions
@@ -372,6 +546,12 @@ export const useErpStore = create<ErpState>()(
         const { assets, selectedCompanyId } = get()
         if (selectedCompanyId === 'consolidated') return assets
         return assets.filter((a) => a.companyId === selectedCompanyId)
+      },
+
+      getFilteredContracts: () => {
+        const { contracts, selectedCompanyId } = get()
+        if (selectedCompanyId === 'consolidated') return contracts
+        return contracts.filter((c) => c.companyId === selectedCompanyId)
       },
     }),
     { name: 'erp-store-v3' },

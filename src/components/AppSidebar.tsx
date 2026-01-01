@@ -25,6 +25,8 @@ import {
   Printer,
   PieChart,
   CheckSquare,
+  FileText,
+  Network,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -105,6 +107,17 @@ export function AppSidebar() {
                   <Link to="/assets">
                     <Archive />
                     <span>Ativos Imobilizados</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith('/contracts')}
+                >
+                  <Link to="/contracts">
+                    <FileText />
+                    <span>Contratos</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -243,6 +256,19 @@ export function AppSidebar() {
                     <Link to="/admin/approvals">
                       <CheckSquare />
                       <span>Aprovações</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname.startsWith(
+                      '/admin/integrations',
+                    )}
+                  >
+                    <Link to="/admin/integrations">
+                      <Network />
+                      <span>Integrações</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

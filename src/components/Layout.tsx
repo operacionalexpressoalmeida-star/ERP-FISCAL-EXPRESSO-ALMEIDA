@@ -17,6 +17,7 @@ import {
 import { useErpStore } from '@/stores/useErpStore'
 import { Building, ShieldCheck, ShieldAlert, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { NotificationHub } from '@/components/NotificationHub'
 
 export default function Layout() {
   const { companies, selectedCompanyId, setContext, userRole } = useErpStore()
@@ -75,11 +76,17 @@ export default function Layout() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`gap-1 ${roleColor} border-0`}>
-              <RoleIcon className="h-3 w-3" />
-              <span className="capitalize">{userRole}</span>
-            </Badge>
+          <div className="flex items-center gap-4">
+            <NotificationHub />
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className={`gap-1 ${roleColor} border-0`}
+              >
+                <RoleIcon className="h-3 w-3" />
+                <span className="capitalize">{userRole}</span>
+              </Badge>
+            </div>
           </div>
         </header>
         <main className="flex flex-1 flex-col gap-4 p-4">

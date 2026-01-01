@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2, PenTool, TrendingDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, PenTool } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { PaginationControls } from '@/components/PaginationControls'
 
 const assetSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -65,6 +66,8 @@ const assetSchema = z.object({
   depreciationRate: z.coerce.number().min(0).max(100),
   status: z.enum(['Active', 'Sold', 'WrittenOff']),
 })
+
+const ITEMS_PER_PAGE = 10
 
 export default function AssetList() {
   const {
@@ -79,6 +82,9 @@ export default function AssetList() {
   } = useErpStore()
 
   const assets = getFilteredAssets()
+  const [currentPage, setCurrentPage] = useState(1)
+  const totalPages = Math.ceil(assets.length / ITEMS_PER_PAGE)
+
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isMaintDialogOpen, setIsMaintDialogOpen] = useState(false)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
@@ -179,6 +185,11 @@ export default function AssetList() {
     }
   }
 
+  const currentData = assets.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  )
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex justify-between items-center">
@@ -272,7 +283,7 @@ export default function AssetList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {assets.map((asset) => {
+              {currentData.map((asset) => {
                 const depreciation = calculateDepreciation(asset)
                 const currentVal = asset.originalValue - depreciation
                 return (
@@ -332,6 +343,11 @@ export default function AssetList() {
               })}
             </TableBody>
           </Table>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
 
