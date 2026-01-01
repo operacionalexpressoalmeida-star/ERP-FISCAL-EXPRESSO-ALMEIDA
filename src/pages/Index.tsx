@@ -1,133 +1,160 @@
-/* Home Page - Dashboard */
-import { useCargoStore } from '@/stores/useCargoStore'
+import { useErpStore } from '@/stores/useErpStore'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
+  CardDescription,
 } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import {
-  ChartConfig,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  DollarSign,
+  Wallet,
+} from 'lucide-react'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts'
+import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
-import {
-  FileText,
-  DollarSign,
-  Users,
-  PlusCircle,
-  FileBarChart,
-} from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
 
 export default function Index() {
-  const { loads, responsibles, getResponsibleName } = useCargoStore()
+  const { getFilteredTransactions, companies, selectedCompanyId } =
+    useErpStore()
+  const transactions = getFilteredTransactions()
 
   // KPIs
-  const totalCargas = loads.length
-  const totalValorCarga = loads.reduce((acc, load) => acc + load.cargoValue, 0)
-  const totalValorAssociado = loads.reduce(
-    (acc, load) => acc + load.associatedValue,
-    0,
-  )
-  const ativosCount = new Set(loads.map((l) => l.responsibleId)).size
+  const totalRevenue = transactions
+    .filter((t) => t.type === 'revenue')
+    .reduce((acc, t) => acc + t.value, 0)
 
-  // Recent Activity
-  const recentActivity = [...loads]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, 5)
+  const totalExpense = transactions
+    .filter((t) => t.type === 'expense')
+    .reduce((acc, t) => acc + t.value, 0)
 
-  // Chart Data: Top 5 Responsibles by Total Load Value
-  const responsiblesMap = new Map<string, number>()
-  loads.forEach((load) => {
-    const current = responsiblesMap.get(load.responsibleId) || 0
-    responsiblesMap.set(load.responsibleId, current + load.cargoValue)
-  })
+  const totalTaxes = transactions.reduce((acc, t) => {
+    // Sum of all taxes from transactions
+    return acc + (t.icmsValue || 0) + (t.pisValue || 0) + (t.cofinsValue || 0)
+  }, 0)
 
-  const chartData = Array.from(responsiblesMap.entries())
-    .map(([id, value]) => ({
-      name: getResponsibleName(id),
-      value: value,
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5)
+  // Net Result (Simplified: Revenue - Expenses (incl taxes implicit in expense or not? usually expenses list includes taxes, but for net result accounting we subtract expenses and revenue taxes)
+  // For this dashboard, let's assume 'value' in revenue is Gross, and 'value' in expense is total cost.
+  // Net = Revenue - Expenses.
+  const netResult = totalRevenue - totalExpense
 
-  const chartConfig = {
-    value: {
-      label: 'Valor Total',
+  // Chart Data: Revenue vs Expense
+  const chartData = [
+    {
+      name: 'Receita Bruta',
+      value: totalRevenue,
       color: 'hsl(var(--primary))',
     },
-  } satisfies ChartConfig
+    {
+      name: 'Despesas Totais',
+      value: totalExpense,
+      color: 'hsl(var(--destructive))',
+    },
+    {
+      name: 'Impostos (Aprox)',
+      value: totalTaxes,
+      color: 'hsl(var(--secondary))',
+    },
+    {
+      name: 'Resultado Líquido',
+      value: netResult,
+      color: 'hsl(var(--chart-3))',
+    },
+  ]
+
+  const chartConfig = {
+    value: { label: 'Valor', color: 'hsl(var(--primary))' },
+  }
+
+  const contextName =
+    selectedCompanyId === 'consolidated'
+      ? 'Todas as Empresas'
+      : companies.find((c) => c.id === selectedCompanyId)?.name
 
   return (
-    <div className="flex flex-col gap-6 p-6 animate-fade-in">
+    <div className="flex flex-col gap-6 animate-fade-in">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Dashboard Financeiro
+        </h1>
+        <p className="text-muted-foreground">
+          Visão geral:{' '}
+          <span className="font-semibold text-foreground">{contextName}</span>
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total de Cargas
-            </CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalCargas}</div>
-            <p className="text-xs text-muted-foreground">
-              Registros no sistema
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total em Valores (Carga)
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Receita Bruta</CardTitle>
+            <ArrowUpCircle className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(totalValorCarga)}
+              {formatCurrency(totalRevenue)}
+            </div>
+            <p className="text-xs text-muted-foreground">Período Atual</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Despesas Totais
+            </CardTitle>
+            <ArrowDownCircle className="h-4 w-4 text-rose-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {formatCurrency(totalExpense)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Soma de valores declarados
+              Operacionais e Administrativas
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Total em Valores (Assoc.)
+              Impostos Destacados
             </CardTitle>
-            <DollarSign className="h-4 w-4 text-secondary" />
+            <DollarSign className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-secondary">
-              {formatCurrency(totalValorAssociado)}
+            <div className="text-2xl font-bold">
+              {formatCurrency(totalTaxes)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Soma de valores associados
-            </p>
+            <p className="text-xs text-muted-foreground">ICMS, PIS, COFINS</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Responsáveis Ativos
+              Resultado Líquido
             </CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Wallet className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{ativosCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Com cargas registradas
-            </p>
+            <div
+              className={`text-2xl font-bold ${netResult >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}
+            >
+              {formatCurrency(netResult)}
+            </div>
+            <p className="text-xs text-muted-foreground">Antes do IRPJ/CSLL</p>
           </CardContent>
         </Card>
       </div>
@@ -135,34 +162,30 @@ export default function Index() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-4">
           <CardHeader>
-            <CardTitle>Top Responsáveis por Volume</CardTitle>
+            <CardTitle>Visão Financeira</CardTitle>
             <CardDescription>
-              Os 5 maiores responsáveis em valor total de carga.
+              Comparativo de movimentação financeira.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <ChartContainer config={chartConfig}>
-              <BarChart
-                accessibilityLayer
-                data={chartData}
-                layout="vertical"
-                margin={{ left: 0 }}
-              >
-                <CartesianGrid horizontal={false} />
-                <YAxis
+          <CardContent className="pl-2">
+            <ChartContainer config={chartConfig} className="h-[300px] w-full">
+              <BarChart data={chartData}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis
                   dataKey="name"
-                  type="category"
                   tickLine={false}
-                  tickMargin={10}
                   axisLine={false}
-                  width={100}
+                  tickMargin={10}
                 />
-                <XAxis dataKey="value" type="number" hide />
                 <ChartTooltip
                   cursor={false}
-                  content={<ChartTooltipContent hideLabel />}
+                  content={<ChartTooltipContent />}
                 />
-                <Bar dataKey="value" fill="var(--color-value)" radius={5} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
               </BarChart>
             </ChartContainer>
           </CardContent>
@@ -170,43 +193,39 @@ export default function Index() {
         <Card className="col-span-3">
           <CardHeader>
             <CardTitle>Atividade Recente</CardTitle>
-            <CardDescription>Últimas 5 cargas registradas.</CardDescription>
+            <CardDescription>Últimas transações registradas.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-8">
-              {recentActivity.map((load) => (
-                <div key={load.id} className="flex items-center">
+            <div className="space-y-4">
+              {transactions.slice(0, 5).map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0"
+                >
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">
-                      {getResponsibleName(load.responsibleId)}
+                      {t.description}
                     </p>
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {load.requestNumber}
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(t.date).toLocaleDateString('pt-BR')}
                     </p>
                   </div>
-                  <div className="ml-auto font-medium">
-                    {formatCurrency(load.associatedValue)}
+                  <div
+                    className={`font-medium ${t.type === 'revenue' ? 'text-emerald-600' : 'text-rose-600'}`}
+                  >
+                    {t.type === 'revenue' ? '+' : '-'}
+                    {formatCurrency(t.value)}
                   </div>
                 </div>
               ))}
+              {transactions.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma atividade recente.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Button asChild size="lg" className="h-24 text-lg" variant="outline">
-          <Link to="/cadastro" className="flex flex-col gap-2">
-            <PlusCircle className="h-8 w-8 text-primary" />
-            Cadastrar Nova Carga
-          </Link>
-        </Button>
-        <Button asChild size="lg" className="h-24 text-lg" variant="outline">
-          <Link to="/relatorios" className="flex flex-col gap-2">
-            <FileBarChart className="h-8 w-8 text-secondary" />
-            Visualizar Relatórios
-          </Link>
-        </Button>
       </div>
     </div>
   )

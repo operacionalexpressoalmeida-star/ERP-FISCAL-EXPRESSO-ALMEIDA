@@ -4,12 +4,16 @@ import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Layout from './components/Layout'
-import Index from './pages/Index'
 import NotFound from './pages/NotFound'
-import ResponsaveisList from './pages/responsaveis/ResponsaveisList'
-import ResponsaveisDetail from './pages/responsaveis/ResponsaveisDetail'
-import CadastroCarga from './pages/cadastro/CadastroCarga'
-import Relatorios from './pages/relatorios/Relatorios'
+
+// New ERP Pages
+import Index from './pages/Index'
+import OrganizationList from './pages/organization/OrganizationList'
+import CTeList from './pages/operations/CTeList'
+import ExpenseList from './pages/operations/ExpenseList'
+import LalurPage from './pages/accounting/LalurPage'
+import TaxPage from './pages/accounting/TaxPage'
+import DrePage from './pages/reports/DrePage'
 
 const App = () => (
   <BrowserRouter
@@ -21,10 +25,12 @@ const App = () => (
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Index />} />
-          <Route path="/responsaveis" element={<ResponsaveisList />} />
-          <Route path="/responsaveis/:id" element={<ResponsaveisDetail />} />
-          <Route path="/cadastro" element={<CadastroCarga />} />
-          <Route path="/relatorios" element={<Relatorios />} />
+          <Route path="/organization" element={<OrganizationList />} />
+          <Route path="/operations/cte" element={<CTeList />} />
+          <Route path="/operations/expenses" element={<ExpenseList />} />
+          <Route path="/accounting/lalur" element={<LalurPage />} />
+          <Route path="/accounting/taxes" element={<TaxPage />} />
+          <Route path="/reports/dre" element={<DrePage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
