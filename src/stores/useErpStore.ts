@@ -76,6 +76,30 @@ export interface ApiConfig {
   apiKey: string
   isActive: boolean
   lastSync?: string
+  // Extended fields for SEFAZ/CIOT
+  type?: 'tracking' | 'fiscal' | 'payment'
+  environment?: 'homologation' | 'production'
+  certificateId?: string
+  provider?: string
+}
+
+export interface Certificate {
+  id: string
+  name: string
+  expiryDate: string
+  password?: string // Mock storage
+  issuer: string
+  status: 'valid' | 'expired' | 'expiring_soon'
+}
+
+export interface IntegrationLog {
+  id: string
+  type: 'SEFAZ' | 'CIOT' | 'TRACKING'
+  action: string
+  status: 'success' | 'error' | 'pending'
+  message: string
+  timestamp: string
+  details?: string
 }
 
 export interface Transaction {
@@ -120,6 +144,8 @@ export interface ErpState {
   contracts: Contract[]
   notifications: Notification[]
   apiConfigs: ApiConfig[]
+  certificates: Certificate[]
+  integrationLogs: IntegrationLog[]
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
@@ -165,6 +191,13 @@ export interface ErpState {
 
   // Api Config Actions
   updateApiConfig: (config: ApiConfig) => void
+
+  // Certificate Actions
+  addCertificate: (cert: Omit<Certificate, 'id'>) => void
+  removeCertificate: (id: string) => void
+
+  // Log Actions
+  addIntegrationLog: (log: Omit<IntegrationLog, 'id'>) => void
 
   // Getters
   getFilteredTransactions: () => Transaction[]
@@ -295,12 +328,67 @@ export const useErpStore = create<ErpState>()(
       ],
       apiConfigs: [
         {
-          id: 'api1',
+          id: 'api_omni',
           serviceName: 'Omnilink Rastreamento',
           endpoint: 'https://api.omnilink.com.br/v1',
           apiKey: '****************',
           isActive: true,
           lastSync: new Date().toISOString(),
+          type: 'tracking',
+        },
+        {
+          id: 'api_sascar',
+          serviceName: 'Sascar Fleet',
+          endpoint: 'https://webservice.sascar.com.br',
+          apiKey: '',
+          isActive: false,
+          type: 'tracking',
+        },
+        {
+          id: 'api_sefaz',
+          serviceName: 'SEFAZ Nacional (NFS-e)',
+          endpoint: 'https://homologacao.sefaz.sp.gov.br/ws',
+          apiKey: '',
+          isActive: true,
+          type: 'fiscal',
+          environment: 'homologation',
+          certificateId: 'cert1',
+        },
+        {
+          id: 'api_ciot',
+          serviceName: 'Integração CIOT',
+          endpoint: 'https://api.efrete.com.br/v1',
+          apiKey: '****************',
+          isActive: false,
+          type: 'payment',
+          provider: 'e-Frete',
+        },
+      ],
+      certificates: [
+        {
+          id: 'cert1',
+          name: 'EXPRESSO ALMEIDA LOGISTICA LTDA',
+          expiryDate: '2025-12-31',
+          issuer: 'Certisign',
+          status: 'valid',
+        },
+      ],
+      integrationLogs: [
+        {
+          id: 'log1',
+          type: 'SEFAZ',
+          action: 'Consulta Status Serviço',
+          status: 'success',
+          message: 'Serviço em operação - Versão 4.00',
+          timestamp: new Date(Date.now() - 3600000).toISOString(),
+        },
+        {
+          id: 'log2',
+          type: 'CIOT',
+          action: 'Geração de CIOT',
+          status: 'error',
+          message: 'Erro na validação do motorista: CPF inválido',
+          timestamp: new Date(Date.now() - 7200000).toISOString(),
         },
       ],
 
@@ -529,6 +617,32 @@ export const useErpStore = create<ErpState>()(
             apiConfigs: [...state.apiConfigs, config],
           }
         }),
+
+      // Certificate Actions
+      addCertificate: (cert) =>
+        set((state) => ({
+          certificates: [
+            ...state.certificates,
+            { ...cert, id: Math.random().toString(36).substring(2, 9) },
+          ],
+        })),
+
+      removeCertificate: (id) =>
+        set((state) => ({
+          certificates: state.certificates.filter((c) => c.id !== id),
+        })),
+
+      // Log Actions
+      addIntegrationLog: (log) =>
+        set((state) => ({
+          integrationLogs: [
+            {
+              ...log,
+              id: Math.random().toString(36).substring(2, 9),
+            },
+            ...state.integrationLogs,
+          ].slice(0, 100), // Keep only last 100 logs
+        })),
 
       getFilteredTransactions: () => {
         const { transactions, selectedCompanyId } = get()
