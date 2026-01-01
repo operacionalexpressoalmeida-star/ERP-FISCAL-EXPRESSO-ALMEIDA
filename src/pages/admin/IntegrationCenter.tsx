@@ -174,7 +174,10 @@ export default function IntegrationCenter() {
     const mockDate = new Date().toISOString().split('T')[0]
 
     // Duplicate Check logic: ensure we don't import the same Invoice Number twice
-    const isDuplicate = transactions.some((t) => t.cteNumber === mockNfeNumber)
+    const isDuplicate = transactions.some(
+      (t) =>
+        t.documentNumber === mockNfeNumber || t.cteNumber === mockNfeNumber,
+    )
 
     if (!isDuplicate) {
       // Determine company context (fallback to first company if consolidated)
@@ -187,7 +190,9 @@ export default function IntegrationCenter() {
         companyId: targetCompanyId,
         type: 'expense',
         category: 'Fuel',
-        description: `Abastecimento (Auto) - NF ${mockNfeNumber} - Posto Rede Shell`,
+        description: `Abastecimento (Auto) - NF ${mockNfeNumber}`,
+        providerName: 'Posto Rede Shell',
+        documentNumber: mockNfeNumber,
         value: mockValue,
         date: mockDate,
         cteNumber: mockNfeNumber, // Mapping Invoice Number to cteNumber field for reference

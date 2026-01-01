@@ -69,9 +69,11 @@ import { Badge } from '@/components/ui/badge'
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
   date: z.string(),
-  description: z.string().min(3),
-  value: z.coerce.number().min(0.01),
-  category: z.string(),
+  description: z.string().min(3, 'Descrição obrigatória'),
+  providerName: z.string().min(2, 'Fornecedor obrigatório'),
+  documentNumber: z.string().optional(),
+  value: z.coerce.number().min(0.01, 'Valor deve ser positivo'),
+  category: z.string().min(1, 'Selecione a categoria'),
   isDeductibleIrpjCsll: z.boolean().default(false),
   hasCreditPisCofins: z.boolean().default(false),
   hasCreditIcms: z.boolean().default(false),
@@ -132,6 +134,8 @@ export default function ExpenseList() {
         companyId: selectedTransaction.companyId,
         date: selectedTransaction.date,
         description: selectedTransaction.description,
+        providerName: selectedTransaction.providerName || '',
+        documentNumber: selectedTransaction.documentNumber || '',
         value: selectedTransaction.value,
         category: selectedTransaction.category || '',
         isDeductibleIrpjCsll: selectedTransaction.isDeductibleIrpjCsll || false,
@@ -145,6 +149,8 @@ export default function ExpenseList() {
         companyId:
           selectedCompanyId !== 'consolidated' ? selectedCompanyId : '',
         description: '',
+        providerName: '',
+        documentNumber: '',
         value: 0,
         category: '',
         isDeductibleIrpjCsll: true,
@@ -275,7 +281,7 @@ export default function ExpenseList() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {selectedTransaction ? 'Editar Despesa' : 'Registrar Despesa'}
@@ -342,6 +348,8 @@ export default function ExpenseList() {
                             Administrativo
                           </SelectItem>
                           <SelectItem value="Personnel">Pessoal</SelectItem>
+                          <SelectItem value="Tolls">Pedágio</SelectItem>
+                          <SelectItem value="Other">Outros</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -353,46 +361,48 @@ export default function ExpenseList() {
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="contractId"
+                  name="providerName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Contrato Fornecedor</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Opcional" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">Nenhum</SelectItem>
-                          {contracts.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.partyName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Fornecedor</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Nome do estabelecimento"
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                 <FormField
                   control={form.control}
-                  name="description"
+                  name="documentNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Descrição</FormLabel>
+                      <FormLabel>Nº Documento / NF</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} placeholder="Opcional" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Descrição Detalhada</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Ex: Diesel S10 - 500L" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -422,6 +432,36 @@ export default function ExpenseList() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="contractId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contrato Vinculado (Opcional)</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione se houver" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="">Nenhum</SelectItem>
+                        {contracts.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.partyName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <div className="grid grid-cols-3 gap-4 pt-2">
                 <FormField
                   control={form.control}
@@ -520,7 +560,7 @@ export default function ExpenseList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Categoria</TableHead>
-                <TableHead>Contrato/CIOT</TableHead>
+                <TableHead>Contrato/Doc</TableHead>
                 <TableHead className="text-center">Fiscal</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-[120px]">Ações</TableHead>
@@ -533,15 +573,16 @@ export default function ExpenseList() {
                     {new Date(t.date).toLocaleDateString('pt-BR')}
                   </TableCell>
                   <TableCell>
-                    {t.cteNumber && t.category === 'Fuel' && (
-                      <Badge
-                        variant="secondary"
-                        className="mr-2 text-xs bg-amber-100 text-amber-800"
-                      >
-                        Auto
-                      </Badge>
-                    )}
-                    {t.description}
+                    <div className="flex flex-col">
+                      <span className="font-medium">
+                        {t.providerName || t.description}
+                      </span>
+                      {t.providerName && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {t.description}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {t.category === 'FreightPayment'
@@ -556,10 +597,11 @@ export default function ExpenseList() {
                           Contrato
                         </Badge>
                       )}
-                      {t.cteNumber && t.category === 'Fuel' && (
+                      {(t.documentNumber ||
+                        (t.cteNumber && t.category === 'Fuel')) && (
                         <Badge variant="outline" className="text-xs w-fit">
                           <FileText className="w-3 h-3 mr-1" />
-                          NF {t.cteNumber}
+                          {t.documentNumber || t.cteNumber}
                         </Badge>
                       )}
                       {t.ciotCode && (

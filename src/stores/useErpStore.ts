@@ -123,6 +123,9 @@ export interface Transaction {
   assetId?: string
   contractId?: string
   isReconciled?: boolean
+  // New fields for manual expense entry
+  providerName?: string
+  documentNumber?: string
   // NFS-e fields
   nfseStatus?: 'draft' | 'transmitted' | 'authorized' | 'rejected'
   rpsNumber?: string
@@ -279,6 +282,8 @@ export const useErpStore = create<ErpState>()(
           type: 'expense',
           date: '2024-02-05',
           description: 'Diesel S10',
+          providerName: 'Posto Shell',
+          documentNumber: '102030',
           value: 4500,
           category: 'Fuel',
           isDeductibleIrpjCsll: true,
