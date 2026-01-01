@@ -32,6 +32,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  MoreVertical,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -51,6 +52,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -123,6 +132,7 @@ export default function ExpenseList() {
     addTransaction,
     updateTransaction,
     removeTransaction,
+    clearExpenses,
     addIntegrationLog,
     syncSefazExpenses,
     companies,
@@ -143,6 +153,7 @@ export default function ExpenseList() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isXmlImportOpen, setIsXmlImportOpen] = useState(false)
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null)
@@ -264,6 +275,16 @@ export default function ExpenseList() {
     }
   }
 
+  const handleDeleteAll = () => {
+    clearExpenses()
+    setIsDeleteAllOpen(false)
+    toast({
+      title: 'Módulo Resetado',
+      description: 'Todas as despesas foram apagadas com sucesso.',
+      variant: 'destructive',
+    })
+  }
+
   const handleApprove = (t: Transaction) => {
     updateTransaction(t.id, { status: 'approved' })
     toast({ title: 'Despesa Aprovada', description: 'Registro contabilizado.' })
@@ -369,6 +390,67 @@ export default function ExpenseList() {
     setIsDialogOpen(true)
   }
 
+  const handleCategoryChange = (category: string) => {
+    form.setValue('category', category)
+
+    // Automated Tax Categorization Logic
+    let taxSettings = {
+      isDeductibleIrpjCsll: true,
+      hasCreditPisCofins: false,
+      hasCreditIcms: false,
+    }
+
+    switch (category) {
+      case 'Fuel':
+      case 'Maintenance':
+      case 'FreightPayment': // CT-e / Subcontracting
+        taxSettings = {
+          isDeductibleIrpjCsll: true,
+          hasCreditPisCofins: true,
+          hasCreditIcms: true,
+        }
+        break
+      case 'Tolls':
+        taxSettings = {
+          isDeductibleIrpjCsll: true,
+          hasCreditPisCofins: false,
+          hasCreditIcms: false,
+        }
+        break
+      case 'Administrative':
+        taxSettings = {
+          isDeductibleIrpjCsll: true,
+          hasCreditPisCofins: true, // e.g. electricity, rent (sometimes)
+          hasCreditIcms: false,
+        }
+        break
+      case 'Personnel':
+        taxSettings = {
+          isDeductibleIrpjCsll: true,
+          hasCreditPisCofins: false,
+          hasCreditIcms: false,
+        }
+        break
+      case 'Uncategorized':
+        taxSettings = {
+          isDeductibleIrpjCsll: false,
+          hasCreditPisCofins: false,
+          hasCreditIcms: false,
+        }
+        break
+      default: // Other
+        taxSettings = {
+          isDeductibleIrpjCsll: true,
+          hasCreditPisCofins: false,
+          hasCreditIcms: false,
+        }
+    }
+
+    form.setValue('isDeductibleIrpjCsll', taxSettings.isDeductibleIrpjCsll)
+    form.setValue('hasCreditPisCofins', taxSettings.hasCreditPisCofins)
+    form.setValue('hasCreditIcms', taxSettings.hasCreditIcms)
+  }
+
   const currentData = transactions.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
@@ -404,26 +486,69 @@ export default function ExpenseList() {
           </p>
         </div>
         {userRole === 'admin' && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Button
               variant="outline"
               onClick={handleSyncSefaz}
               disabled={isSyncing}
+              className="hidden sm:flex"
             >
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`}
               />
               Sincronizar SEFAZ
             </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="sm:hidden">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                <DropdownMenuItem onClick={handleSyncSefaz}>
+                  Sincronizar SEFAZ
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsXmlImportOpen(true)}>
+                  Importar XML
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setIsDeleteAllOpen(true)}
+                >
+                  Apagar Todos os Dados
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               variant="secondary"
               onClick={() => setIsXmlImportOpen(true)}
+              className="hidden sm:flex"
             >
               <FileUp className="mr-2 h-4 w-4" /> Importar XML
             </Button>
-            <Button onClick={openNewDialog} variant="destructive">
+            <Button onClick={openNewDialog} variant="default">
               <Plus className="mr-2 h-4 w-4" /> Nova Despesa
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="hidden sm:flex">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Configurações</DropdownMenuLabel>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setIsDeleteAllOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Apagar Todos os Dados
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>
@@ -568,6 +693,7 @@ export default function ExpenseList() {
                                     variant="ghost"
                                     size="icon"
                                     onClick={() => openEditDialog(t)}
+                                    title="Editar"
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
@@ -576,6 +702,7 @@ export default function ExpenseList() {
                                     size="icon"
                                     className="text-destructive hover:text-destructive"
                                     onClick={() => setTransactionToDelete(t)}
+                                    title="Excluir"
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -722,8 +849,9 @@ export default function ExpenseList() {
                     <FormItem>
                       <FormLabel>Categoria</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        onValueChange={handleCategoryChange}
                         defaultValue={field.value}
+                        value={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -736,7 +864,7 @@ export default function ExpenseList() {
                             Manutenção
                           </SelectItem>
                           <SelectItem value="FreightPayment">
-                            Pagamento de Frete
+                            Pagamento de Frete (CT-e)
                           </SelectItem>
                           <SelectItem value="Administrative">
                             Administrativo
@@ -1008,6 +1136,33 @@ export default function ExpenseList() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">
+              Atenção: Apagar Todos os Dados
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a excluir TODAS as despesas registradas no
+              módulo. Esta ação não pode ser desfeita e removerá permanentemente
+              todo o histórico financeiro de despesas.
+              <br />
+              <br />
+              Tem certeza absoluta que deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Sim, apagar tudo
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

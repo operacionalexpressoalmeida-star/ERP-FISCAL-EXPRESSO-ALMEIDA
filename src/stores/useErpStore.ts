@@ -193,6 +193,7 @@ export interface ErpState {
     data: Partial<Omit<Transaction, 'id'>>,
   ) => void
   removeTransaction: (id: string) => void
+  clearExpenses: () => void
   addLalurEntry: (entry: Omit<LalurEntry, 'id'>) => void
   updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
   removeLalurEntry: (id: string) => void
@@ -462,6 +463,22 @@ export const useErpStore = create<ErpState>()(
       removeTransaction: (id) =>
         set((state) => ({
           transactions: state.transactions.filter((t) => t.id !== id),
+        })),
+
+      clearExpenses: () =>
+        set((state) => ({
+          transactions: state.transactions.filter((t) => t.type !== 'expense'),
+          notifications: [
+            ...state.notifications,
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              title: 'Módulo Resetado',
+              message: 'Todas as despesas foram removidas do sistema.',
+              type: 'warning',
+              date: new Date().toISOString(),
+              read: false,
+            },
+          ],
         })),
 
       addLalurEntry: (entry) =>
