@@ -19,8 +19,6 @@ import {
   BookOpen,
   Calculator,
   FileBarChart2,
-  Settings,
-  Package,
   UserCircle,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
@@ -52,12 +50,18 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Package className="size-4" />
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-900 text-white">
+                  <img
+                    src="https://img.usecurling.com/i?q=Expresso+Almeida&shape=fill&color=white"
+                    alt="Logo"
+                    className="size-6 object-contain"
+                  />
                 </div>
                 <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold">ERP Fiscal</span>
-                  <span className="">v2.0.0</span>
+                  <span className="font-bold">ERP Fiscal</span>
+                  <span className="text-xs text-muted-foreground">
+                    Expresso Almeida
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -135,7 +139,7 @@ export function AppSidebar() {
                 >
                   <Link to="/accounting/lalur">
                     <BookOpen />
-                    <span>LALUR</span>
+                    <span>LALUR (Lucro Real)</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -176,12 +180,10 @@ export function AppSidebar() {
                       src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=manager"
                       alt="User"
                     />
-                    <AvatarFallback>U</AvatarFallback>
+                    <AvatarFallback>EA</AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">
-                      Usuário Atual
-                    </span>
+                    <span className="truncate font-semibold">Operador</span>
                     <span className="truncate text-xs text-muted-foreground">
                       {roleLabels[userRole]}
                     </span>

@@ -47,12 +47,12 @@ export default function Layout() {
               <div className="flex items-center gap-2">
                 <Building className="h-4 w-4 text-muted-foreground" />
                 <Select value={selectedCompanyId} onValueChange={setContext}>
-                  <SelectTrigger className="w-[280px]">
+                  <SelectTrigger className="w-[320px]">
                     <SelectValue placeholder="Selecione o Contexto" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="consolidated" className="font-semibold">
-                      Visão Consolidada (Gerencial)
+                      Expresso Almeida - Global
                     </SelectItem>
                     {companies.map((company) => (
                       <SelectItem key={company.id} value={company.id}>

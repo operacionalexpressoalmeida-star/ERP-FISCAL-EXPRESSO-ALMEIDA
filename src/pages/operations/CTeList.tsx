@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
@@ -95,8 +95,52 @@ export default function CTeList() {
       icmsValue: 0,
       pisValue: 0,
       cofinsValue: 0,
+      value: 0,
+      origin: '',
+      destination: '',
     },
   })
+
+  // Watch fields for automatic calculation
+  const watchedValue = useWatch({ control: form.control, name: 'value' })
+  const watchedOrigin = useWatch({ control: form.control, name: 'origin' })
+  const watchedDestination = useWatch({
+    control: form.control,
+    name: 'destination',
+  })
+
+  useEffect(() => {
+    // Automatic ICMS and Taxes Engine
+    const val = Number(watchedValue) || 0
+    if (val > 0) {
+      // PIS/COFINS (Lucro Real defaults)
+      const pis = parseFloat((val * 0.0165).toFixed(2))
+      const cofins = parseFloat((val * 0.076).toFixed(2))
+
+      form.setValue('pisValue', pis)
+      form.setValue('cofinsValue', cofins)
+
+      // ICMS Logic
+      if (
+        watchedOrigin &&
+        watchedDestination &&
+        watchedOrigin.length === 2 &&
+        watchedDestination.length === 2
+      ) {
+        const origin = watchedOrigin.toUpperCase()
+        const destination = watchedDestination.toUpperCase()
+
+        let icmsRate = 0.12 // Default Inter-state
+
+        if (origin === destination) {
+          icmsRate = 0.18 // Default Intra-state (Simulated)
+        }
+
+        const icms = parseFloat((val * icmsRate).toFixed(2))
+        form.setValue('icmsValue', icms)
+      }
+    }
+  }, [watchedValue, watchedOrigin, watchedDestination, form])
 
   useEffect(() => {
     if (selectedTransaction) {
@@ -134,6 +178,8 @@ export default function CTeList() {
       updateTransaction(selectedTransaction.id, {
         ...values,
         type: 'revenue',
+        origin: values.origin.toUpperCase(),
+        destination: values.destination.toUpperCase(),
       })
       toast({
         title: 'CT-e Atualizado',
@@ -143,6 +189,8 @@ export default function CTeList() {
       addTransaction({
         ...values,
         type: 'revenue',
+        origin: values.origin.toUpperCase(),
+        destination: values.destination.toUpperCase(),
       })
       toast({
         title: 'CT-e Registrado',
@@ -165,14 +213,6 @@ export default function CTeList() {
     }
   }
 
-  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value) || 0
-    form.setValue('value', val)
-    form.setValue('pisValue', parseFloat((val * 0.0165).toFixed(2)))
-    form.setValue('cofinsValue', parseFloat((val * 0.076).toFixed(2)))
-    form.setValue('icmsValue', parseFloat((val * 0.12).toFixed(2)))
-  }
-
   const openEditDialog = (t: Transaction) => {
     setSelectedTransaction(t)
     setIsDialogOpen(true)
@@ -188,10 +228,11 @@ export default function CTeList() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Gestão de Receitas (CT-e)
+            Receitas de Frete (CT-e)
           </h1>
           <p className="text-muted-foreground">
-            Emissão e controle de Conhecimentos de Transporte.
+            Emissão e controle de Conhecimentos de Transporte - Expresso
+            Almeida.
           </p>
         </div>
         {userRole === 'admin' && (
@@ -295,7 +336,7 @@ export default function CTeList() {
                     <FormItem>
                       <FormLabel>Origem (UF)</FormLabel>
                       <FormControl>
-                        <Input {...field} maxLength={2} />
+                        <Input {...field} maxLength={2} placeholder="Ex: SP" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -308,72 +349,93 @@ export default function CTeList() {
                     <FormItem>
                       <FormLabel>Destino (UF)</FormLabel>
                       <FormControl>
-                        <Input {...field} maxLength={2} />
+                        <Input {...field} maxLength={2} placeholder="Ex: RJ" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
-              <div className="grid grid-cols-4 gap-4 items-end">
-                <FormField
-                  control={form.control}
-                  name="value"
-                  render={({ field }) => (
-                    <FormItem className="col-span-1">
-                      <FormLabel>Valor Total</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={handleValueChange}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="icmsValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>ICMS (12%)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="pisValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>PIS (1.65%)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="cofinsValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>COFINS (7.6%)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+
+              <div className="bg-muted/30 p-4 rounded-md border">
+                <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
+                  <RefreshCw className="h-3 w-3" />
+                  Cálculo Automático de Impostos
+                </div>
+                <div className="grid grid-cols-4 gap-4 items-end">
+                  <FormField
+                    control={form.control}
+                    name="value"
+                    render={({ field }) => (
+                      <FormItem className="col-span-1">
+                        <FormLabel>Valor Total</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="icmsValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ICMS</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            {...field}
+                            readOnly
+                            className="bg-muted"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="pisValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>PIS</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            {...field}
+                            readOnly
+                            className="bg-muted"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="cofinsValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>COFINS</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            {...field}
+                            readOnly
+                            className="bg-muted"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
+
               <Button type="submit" className="w-full">
                 {selectedTransaction
                   ? 'Salvar Alterações'
