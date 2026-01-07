@@ -25,15 +25,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Transaction } from '@/stores/useErpStore'
+import { Transaction, PendencyLog } from '@/stores/useErpStore'
 import { useEffect, useState, useMemo } from 'react'
 import { useErpStore } from '@/stores/useErpStore'
 import { Separator } from '@/components/ui/separator'
 import { calculateCteTaxes, validateCte } from '@/lib/tax-utils'
-import { AlertTriangle, Calculator, Truck } from 'lucide-react'
+import { AlertTriangle, Calculator, Truck, History } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CteProfitabilityTab } from '@/components/operations/CteProfitabilityTab'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 const cteSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -50,8 +51,9 @@ const cteSchema = z.object({
   pisValue: z.coerce.number().min(0),
   cofinsValue: z.coerce.number().min(0),
   category: z.string().optional(),
-  // New Field
   freightId: z.string().optional(),
+  cteType: z.enum(['Normal', 'Complementary', 'Substitution']).optional(),
+  originalCteKey: z.string().optional(),
 })
 
 export type CteFormData = z.infer<typeof cteSchema>
@@ -69,8 +71,15 @@ export function CteFormDialog({
   initialData,
   onSave,
 }: CteFormDialogProps) {
-  const { companies, selectedCompanyId, transactions, validationSettings } =
-    useErpStore()
+  const {
+    companies,
+    selectedCompanyId,
+    transactions,
+    validationSettings,
+    conditionalRules,
+    updateTransaction,
+    currentUser,
+  } = useErpStore()
   const [activeTab, setActiveTab] = useState('details')
 
   // Linked Expenses
@@ -106,6 +115,8 @@ export function CteFormDialog({
       cofinsValue: 0,
       category: 'Transport Revenue',
       freightId: '',
+      cteType: 'Normal',
+      originalCteKey: '',
     },
   })
 
@@ -129,6 +140,8 @@ export function CteFormDialog({
           cofinsValue: initialData.cofinsValue || 0,
           category: initialData.category || 'Transport Revenue',
           freightId: initialData.freightId || '',
+          cteType: initialData.cteType || 'Normal',
+          originalCteKey: initialData.originalCteKey || '',
         })
       } else {
         form.reset({
@@ -148,6 +161,8 @@ export function CteFormDialog({
           cofinsValue: 0,
           category: 'Transport Revenue',
           freightId: '',
+          cteType: 'Normal',
+          originalCteKey: '',
         })
       }
     }
@@ -157,7 +172,11 @@ export function CteFormDialog({
   const valuesForValidation = useWatch({ control: form.control })
 
   // Validate with settings
-  const validation = validateCte(valuesForValidation, validationSettings)
+  const validation = validateCte(
+    valuesForValidation,
+    validationSettings,
+    conditionalRules,
+  )
 
   const origin = useWatch({ control: form.control, name: 'origin' })
   const destination = useWatch({ control: form.control, name: 'destination' })
@@ -199,6 +218,41 @@ export function CteFormDialog({
   }
 
   const handleSubmit = (values: CteFormData) => {
+    if (initialData) {
+      // Create Audit Log
+      const changes: string[] = []
+      ;(Object.keys(values) as Array<keyof CteFormData>).forEach((key) => {
+        const newVal = values[key]
+        const oldVal =
+          initialData[key as keyof Transaction] ||
+          (key === 'cteType' ? 'Normal' : '')
+        if (String(newVal) !== String(oldVal)) {
+          changes.push(`${key}: ${oldVal} -> ${newVal}`)
+        }
+      })
+
+      if (changes.length > 0) {
+        const newLog: PendencyLog = {
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toISOString(),
+          user: currentUser?.name || 'Unknown',
+          action: 'Update',
+          details: changes.join('; '),
+        }
+        const updatedHistory = [...(initialData.pendencyHistory || []), newLog]
+        // This is a bit of a hack since onSave usually calls updateTransaction which overwrites data
+        // We need to ensure the history is merged.
+        // Assuming onSave handles the final object merge in CTeList or we update it here directly if needed
+        // But onSave is designed for form data.
+        // Let's modify the values passed to onSave to include the new history if we can,
+        // but CteFormData is strict.
+        // Instead, let's call updateTransaction directly for history if possible or rely on parent.
+        // Since onSave is used in CTeList to call updateTransaction, we can't easily inject history there without changing CteFormData.
+        // So we will call updateTransaction directly here for the log if it exists.
+        updateTransaction(initialData.id, { pendencyHistory: updatedHistory })
+      }
+    }
+
     onSave(values)
     onOpenChange(false)
   }
@@ -222,10 +276,13 @@ export function CteFormDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="details">Dados do CT-e</TabsTrigger>
             <TabsTrigger value="profitability" disabled={!initialData}>
-              Rentabilidade e Despesas
+              Rentabilidade
+            </TabsTrigger>
+            <TabsTrigger value="history" disabled={!initialData}>
+              Histórico
             </TabsTrigger>
           </TabsList>
 
@@ -298,19 +355,50 @@ export function CteFormDialog({
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Data de Emissão</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Data de Emissão</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="cteType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="Normal">Normal</SelectItem>
+                              <SelectItem value="Complementary">
+                                Complementar
+                              </SelectItem>
+                              <SelectItem value="Substitution">
+                                Substituição
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -347,6 +435,22 @@ export function CteFormDialog({
                     />
                   </div>
                 </div>
+
+                {form.watch('cteType') !== 'Normal' && (
+                  <FormField
+                    control={form.control}
+                    name="originalCteKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Chave do CT-e Original</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Chave referenciada" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <Separator />
 
@@ -570,6 +674,44 @@ export function CteFormDialog({
               totalLinkedExpenses={totalLinkedExpenses}
               linkedExpenses={linkedExpenses}
             />
+          </TabsContent>
+
+          <TabsContent value="history">
+            <div className="pt-4">
+              <ScrollArea className="h-[400px] border rounded-md p-4">
+                {initialData?.pendencyHistory &&
+                initialData.pendencyHistory.length > 0 ? (
+                  <div className="space-y-4">
+                    {initialData.pendencyHistory.map((log) => (
+                      <div
+                        key={log.id}
+                        className="flex flex-col gap-1 border-b pb-3 last:border-0"
+                      >
+                        <div className="flex justify-between items-center text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground">
+                            {log.user}
+                          </span>
+                          <span>
+                            {new Date(log.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-medium text-blue-600">
+                            {log.action}
+                          </span>
+                          : {log.details}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                    <History className="h-8 w-8 opacity-20" />
+                    <p>Nenhum histórico registrado.</p>
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
           </TabsContent>
         </Tabs>
       </DialogContent>

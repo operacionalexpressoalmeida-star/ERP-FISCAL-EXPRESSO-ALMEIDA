@@ -31,6 +31,8 @@ import {
   Settings2,
   LogOut,
   Files,
+  Activity,
+  Sliders,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -232,6 +234,19 @@ export function AppSidebar() {
                 <SidebarMenuButton
                   asChild
                   isActive={location.pathname.startsWith(
+                    '/reports/freight-dashboard',
+                  )}
+                >
+                  <Link to="/reports/freight-dashboard">
+                    <Activity />
+                    <span>Fretes & Cargas</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith(
                     '/reports/revenue-analytics',
                   )}
                 >
@@ -308,6 +323,19 @@ export function AppSidebar() {
                     <Link to="/admin/categorization">
                       <Settings2 />
                       <span>Categorização</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname.startsWith(
+                      '/admin/conditional-rules',
+                    )}
+                  >
+                    <Link to="/admin/conditional-rules">
+                      <Sliders />
+                      <span>Regras Condicionais</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

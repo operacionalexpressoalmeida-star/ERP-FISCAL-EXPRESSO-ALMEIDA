@@ -133,12 +133,37 @@ export interface CategorizationRule {
   targetCategory: string
 }
 
+export interface ConditionalRule {
+  id: string
+  name: string
+  conditionField: string
+  conditionOperator: 'equals' | 'not_equals' | 'contains'
+  conditionValue: string
+  targetField: string
+  ruleType: 'mandatory' | 'match_value'
+  ruleValue?: string
+  errorMessage: string
+}
+
 export interface TransactionDocument {
   id: string
   name: string
   url: string
   type: string
   uploadedAt: string
+  signatureStatus?: 'pending' | 'signed'
+  signedBy?: string
+  signedAt?: string
+}
+
+export interface PendencyLog {
+  id: string
+  timestamp: string
+  user: string
+  action: string
+  details: string
+  previousValue?: string
+  newValue?: string
 }
 
 export interface Transaction {
@@ -190,10 +215,12 @@ export interface Transaction {
   attachmentCloudStorage?: boolean
   providerCnpj?: string
   recipientCnpj?: string
-  // New Fields
   freightId?: string
   freightStatus?: 'Planned' | 'In Transit' | 'Delivered' | 'Cancelled'
   documents?: TransactionDocument[]
+  pendencyHistory?: PendencyLog[]
+  cteType?: 'Normal' | 'Complementary' | 'Substitution'
+  originalCteKey?: string
 }
 
 export interface LalurEntry {
@@ -228,6 +255,7 @@ export interface ErpState {
   certificates: Certificate[]
   integrationLogs: IntegrationLog[]
   categorizationRules: CategorizationRule[]
+  conditionalRules: ConditionalRule[]
   validationSettings: ValidationSettings
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
@@ -285,6 +313,9 @@ export interface ErpState {
     id: string,
     rule: Partial<CategorizationRule>,
   ) => void
+  addConditionalRule: (rule: Omit<ConditionalRule, 'id'>) => void
+  removeConditionalRule: (id: string) => void
+  updateConditionalRule: (id: string, rule: Partial<ConditionalRule>) => void
   updateValidationSettings: (settings: Partial<ValidationSettings>) => void
   checkPendingCtes: () => void
   applyCategorizationRules: (
@@ -317,6 +348,8 @@ const processTransactionLogic = (
     consistencyWarnings: transaction.consistencyWarnings || [],
     attachmentCloudStorage: !!transaction.attachmentUrl,
     documents: transaction.documents || [],
+    pendencyHistory: [],
+    cteType: transaction.cteType || 'Normal',
   } as Transaction
 
   // Apply Categorization Rules
@@ -423,6 +456,7 @@ export const useErpStore = create<ErpState>()(
       certificates: [],
       integrationLogs: [],
       categorizationRules: [],
+      conditionalRules: [],
       validationSettings: {
         blockInvalidCfop: true,
         blockInvalidStates: true,
@@ -877,6 +911,26 @@ export const useErpStore = create<ErpState>()(
       updateCategorizationRule: (id, rule) =>
         set((state) => ({
           categorizationRules: state.categorizationRules.map((r) =>
+            r.id === id ? { ...r, ...rule } : r,
+          ),
+        })),
+
+      addConditionalRule: (rule) =>
+        set((state) => ({
+          conditionalRules: [
+            ...state.conditionalRules,
+            { ...rule, id: Math.random().toString(36).substring(2, 9) },
+          ],
+        })),
+
+      removeConditionalRule: (id) =>
+        set((state) => ({
+          conditionalRules: state.conditionalRules.filter((r) => r.id !== id),
+        })),
+
+      updateConditionalRule: (id, rule) =>
+        set((state) => ({
+          conditionalRules: state.conditionalRules.map((r) =>
             r.id === id ? { ...r, ...rule } : r,
           ),
         })),

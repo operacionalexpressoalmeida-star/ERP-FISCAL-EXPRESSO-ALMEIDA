@@ -64,7 +64,8 @@ export function XmlImportDialog({
   onOpenChange,
   onConfirm,
 }: XmlImportDialogProps) {
-  const { companies, transactions, validationSettings } = useErpStore()
+  const { companies, transactions, validationSettings, conditionalRules } =
+    useErpStore()
   const [items, setItems] = useState<ParsedFiscalDoc[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle')
   const [progress, setProgress] = useState(0)
@@ -275,7 +276,7 @@ export function XmlImportDialog({
     }
 
     // Use shared validation logic which respects dynamic settings
-    const result = validateCte(item, validationSettings)
+    const result = validateCte(item, validationSettings, conditionalRules)
     if (!result.isValid) {
       // If critical errors, we treat them as warnings here to allow import as pending,
       // but strictly we should probably block import or mark as error.

@@ -18,9 +18,18 @@ import {
 import { Transaction } from '@/stores/useErpStore'
 import { useErpStore } from '@/stores/useErpStore'
 import { useState } from 'react'
-import { Trash2, Eye, Upload, FileText, ImageIcon } from 'lucide-react'
+import {
+  Trash2,
+  Eye,
+  Upload,
+  FileText,
+  ImageIcon,
+  PenTool,
+  CheckCircle,
+} from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { FilePreviewDialog } from '@/components/operations/FilePreviewDialog'
+import { Badge } from '@/components/ui/badge'
 
 interface CteDocumentsDialogProps {
   open: boolean
@@ -33,7 +42,7 @@ export function CteDocumentsDialog({
   onOpenChange,
   transaction,
 }: CteDocumentsDialogProps) {
-  const { updateTransaction } = useErpStore()
+  const { updateTransaction, currentUser } = useErpStore()
   const [previewFile, setPreviewFile] = useState<{
     url: string
     name: string
@@ -55,7 +64,6 @@ export function CteDocumentsDialog({
       return
     }
 
-    // Convert to base64 mock
     const reader = new FileReader()
     reader.readAsDataURL(file)
     reader.onload = () => {
@@ -66,6 +74,7 @@ export function CteDocumentsDialog({
         url: url,
         type: file.type,
         uploadedAt: new Date().toISOString(),
+        signatureStatus: 'pending' as const,
       }
 
       const currentDocs = transaction.documents || []
@@ -84,16 +93,37 @@ export function CteDocumentsDialog({
     toast({ title: 'Documento Removido' })
   }
 
+  const handleSign = (docId: string) => {
+    const currentDocs = transaction.documents || []
+    const updatedDocs = currentDocs.map((doc) => {
+      if (doc.id === docId) {
+        return {
+          ...doc,
+          signatureStatus: 'signed' as const,
+          signedBy: currentUser?.name || 'Usuário',
+          signedAt: new Date().toISOString(),
+        }
+      }
+      return doc
+    })
+
+    updateTransaction(transaction.id, { documents: updatedDocs })
+    toast({
+      title: 'Assinado Eletronicamente',
+      description: 'Documento validado com sucesso.',
+    })
+  }
+
   const documents = transaction.documents || []
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Documentos Complementares</DialogTitle>
             <DialogDescription>
-              CT-e: {transaction.cteNumber} - Gerenciar anexos
+              CT-e: {transaction.cteNumber} - Gerenciar anexos e assinaturas
             </DialogDescription>
           </DialogHeader>
 
@@ -120,6 +150,7 @@ export function CteDocumentsDialog({
                   <TableRow>
                     <TableHead className="w-[50px]">Tipo</TableHead>
                     <TableHead>Nome</TableHead>
+                    <TableHead>Status Assinatura</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -134,12 +165,41 @@ export function CteDocumentsDialog({
                           <ImageIcon className="h-4 w-4 text-blue-500" />
                         )}
                       </TableCell>
-                      <TableCell className="font-medium">{doc.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {doc.name}
+                        {doc.signedBy && (
+                          <div className="text-[10px] text-muted-foreground">
+                            Assinado por {doc.signedBy}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {doc.signatureStatus === 'signed' ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-green-50 text-green-700 border-green-200 gap-1"
+                          >
+                            <CheckCircle className="h-3 w-3" /> Assinado
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">Pendente</Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {new Date(doc.uploadedAt).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          {doc.signatureStatus !== 'signed' && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleSign(doc.id)}
+                              title="Assinar Eletronicamente"
+                            >
+                              <PenTool className="h-4 w-4 text-indigo-600" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -162,7 +222,7 @@ export function CteDocumentsDialog({
                   {documents.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={5}
                         className="text-center h-24 text-muted-foreground"
                       >
                         Nenhum documento anexado.

@@ -1,4 +1,8 @@
-import { Transaction, ValidationSettings } from '@/stores/useErpStore'
+import {
+  Transaction,
+  ValidationSettings,
+  ConditionalRule,
+} from '@/stores/useErpStore'
 
 export const STATES = [
   'AC',
@@ -79,6 +83,7 @@ export interface ValidationResult {
 export function validateCte(
   data: Partial<Transaction>,
   settings?: ValidationSettings,
+  conditionalRules?: ConditionalRule[],
 ): ValidationResult {
   const errors: string[] = []
   const warnings: string[] = []
@@ -132,6 +137,39 @@ export function validateCte(
 
   if (data.type === 'revenue' && !data.category) {
     warnings.push('Categoria não definida.')
+  }
+
+  // Apply Conditional Rules
+  if (conditionalRules) {
+    conditionalRules.forEach((rule) => {
+      const conditionFieldValue = String(
+        data[rule.conditionField as keyof Partial<Transaction>] || '',
+      )
+      let conditionMet = false
+
+      if (rule.conditionOperator === 'equals') {
+        conditionMet = conditionFieldValue === rule.conditionValue
+      } else if (rule.conditionOperator === 'not_equals') {
+        conditionMet = conditionFieldValue !== rule.conditionValue
+      } else if (rule.conditionOperator === 'contains') {
+        conditionMet = conditionFieldValue.includes(rule.conditionValue)
+      }
+
+      if (conditionMet) {
+        const targetValue =
+          data[rule.targetField as keyof Partial<Transaction>] || ''
+
+        if (rule.ruleType === 'mandatory') {
+          if (!targetValue) {
+            errors.push(rule.errorMessage)
+          }
+        } else if (rule.ruleType === 'match_value') {
+          if (String(targetValue) !== rule.ruleValue) {
+            errors.push(rule.errorMessage)
+          }
+        }
+      }
+    })
   }
 
   return {

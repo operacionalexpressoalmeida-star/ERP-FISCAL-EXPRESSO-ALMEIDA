@@ -24,10 +24,12 @@ import BankReconciliation from './pages/financial/BankReconciliation'
 import TaxReports from './pages/reports/TaxReports'
 import CustomDashboard from './pages/reports/CustomDashboard'
 import RevenueAnalytics from './pages/reports/RevenueAnalytics'
+import FreightDashboard from './pages/reports/FreightDashboard'
 import ApprovalsPage from './pages/admin/ApprovalsPage'
 import ContractList from './pages/contracts/ContractList'
 import IntegrationCenter from './pages/admin/IntegrationCenter'
 import CategorizationRules from './pages/admin/CategorizationRules'
+import ConditionalValidationRules from './pages/admin/ConditionalValidationRules'
 import CteTaxReport from './pages/reports/CteTaxReport'
 
 const App = () => (
@@ -81,6 +83,10 @@ const App = () => (
               path="/reports/revenue-analytics"
               element={<RevenueAnalytics />}
             />
+            <Route
+              path="/reports/freight-dashboard"
+              element={<FreightDashboard />}
+            />
 
             {/* Admin Only Routes */}
             <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
@@ -92,6 +98,10 @@ const App = () => (
               <Route
                 path="/admin/categorization"
                 element={<CategorizationRules />}
+              />
+              <Route
+                path="/admin/conditional-rules"
+                element={<ConditionalValidationRules />}
               />
             </Route>
           </Route>
