@@ -28,6 +28,7 @@ export default function Layout() {
     userRole,
     checkCertificatesExpiry,
     checkPendingCtes,
+    checkStandardCteAge,
   } = useErpStore()
 
   useEffect(() => {
@@ -35,7 +36,9 @@ export default function Layout() {
     checkCertificatesExpiry()
     // Check for pending CT-es
     checkPendingCtes()
-  }, [checkCertificatesExpiry, checkPendingCtes])
+    // Check for outdated standard CT-e
+    checkStandardCteAge()
+  }, [checkCertificatesExpiry, checkPendingCtes, checkStandardCteAge])
 
   const RoleIcon =
     userRole === 'admin'

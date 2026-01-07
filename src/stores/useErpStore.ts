@@ -166,6 +166,15 @@ export interface PendencyLog {
   newValue?: string
 }
 
+export interface StandardCteLog {
+  id: string
+  timestamp: string
+  userId: string
+  userName: string
+  previousCteId: string | null
+  newCteId: string | null
+}
+
 export interface Transaction {
   id: string
   companyId: string
@@ -260,6 +269,8 @@ export interface ErpState {
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
   standardCteId: string | null
+  standardCteAuditLog: StandardCteLog[]
+  standardCteSetAt: string | null
 
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
@@ -319,6 +330,7 @@ export interface ErpState {
   updateConditionalRule: (id: string, rule: Partial<ConditionalRule>) => void
   updateValidationSettings: (settings: Partial<ValidationSettings>) => void
   checkPendingCtes: () => void
+  checkStandardCteAge: () => void
   setStandardCte: (id: string | null) => void
   applyCategorizationRules: (
     transaction: Partial<Transaction>,
@@ -419,6 +431,8 @@ export const useErpStore = create<ErpState>()(
       selectedCompanyId: 'consolidated',
       userRole: 'admin',
       standardCteId: null,
+      standardCteAuditLog: [],
+      standardCteSetAt: null,
       companies: [
         {
           id: 'c1',
@@ -979,7 +993,59 @@ export const useErpStore = create<ErpState>()(
           return {}
         }),
 
-      setStandardCte: (id) => set({ standardCteId: id }),
+      checkStandardCteAge: () =>
+        set((state) => {
+          if (!state.standardCteId || !state.standardCteSetAt) return {}
+          const setDate = new Date(state.standardCteSetAt)
+          const now = new Date()
+          const diffDays = Math.ceil(
+            (now.getTime() - setDate.getTime()) / (1000 * 60 * 60 * 24),
+          )
+          const limit = 180
+
+          if (diffDays > limit) {
+            const alertId = 'std-cte-outdated'
+            if (!state.notifications.some((n) => n.id === alertId)) {
+              return {
+                notifications: [
+                  {
+                    id: alertId,
+                    title: 'Padrão CT-e Desatualizado',
+                    message: `O CT-e de referência foi definido há ${diffDays} dias. Recomendamos atualização.`,
+                    type: 'warning',
+                    date: now.toISOString(),
+                    read: false,
+                  },
+                  ...state.notifications,
+                ],
+              }
+            }
+          }
+          return {}
+        }),
+
+      setStandardCte: (id) =>
+        set((state) => {
+          const prev = state.standardCteId
+          if (prev === id) return {}
+
+          const log: StandardCteLog = {
+            id: Math.random().toString(36).substring(2, 9),
+            timestamp: new Date().toISOString(),
+            userId: state.currentUser?.id || 'system',
+            userName: state.currentUser?.name || 'System',
+            previousCteId: prev,
+            newCteId: id,
+          }
+
+          return {
+            standardCteId: id,
+            standardCteSetAt: id
+              ? new Date().toISOString()
+              : state.standardCteSetAt,
+            standardCteAuditLog: [log, ...state.standardCteAuditLog],
+          }
+        }),
 
       applyCategorizationRules: (transaction) => {
         const rules = get().categorizationRules

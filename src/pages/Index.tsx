@@ -12,6 +12,7 @@ import {
   ArrowDownCircle,
   DollarSign,
   Wallet,
+  AlertOctagon,
 } from 'lucide-react'
 import {
   BarChart,
@@ -28,10 +29,17 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Link } from 'react-router-dom'
 
 export default function Index() {
-  const { getFilteredTransactions, companies, selectedCompanyId } =
-    useErpStore()
+  const {
+    getFilteredTransactions,
+    companies,
+    selectedCompanyId,
+    standardCteSetAt,
+  } = useErpStore()
   // Filter only approved for financial stats
   const transactions = getFilteredTransactions().filter(
     (t) => t.status === 'approved',
@@ -86,6 +94,16 @@ export default function Index() {
       ? 'Todas as Empresas'
       : companies.find((c) => c.id === selectedCompanyId)?.name
 
+  const isStandardOutdated = () => {
+    if (!standardCteSetAt) return false
+    const setDate = new Date(standardCteSetAt)
+    const now = new Date()
+    const diffDays = Math.ceil(
+      (now.getTime() - setDate.getTime()) / (1000 * 60 * 60 * 24),
+    )
+    return diffDays > 180
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex flex-col gap-2">
@@ -97,6 +115,22 @@ export default function Index() {
           <span className="font-semibold text-foreground">{contextName}</span>
         </p>
       </div>
+
+      {isStandardOutdated() && (
+        <Alert variant="destructive">
+          <AlertOctagon className="h-4 w-4" />
+          <AlertTitle>Atenção: Padrão Fiscal Desatualizado</AlertTitle>
+          <AlertDescription className="flex justify-between items-center">
+            <span>
+              O CT-e de referência foi definido há mais de 180 dias. Isso pode
+              comprometer as validações automáticas.
+            </span>
+            <Button variant="outline" size="sm" className="ml-4" asChild>
+              <Link to="/operations/cte">Atualizar Padrão</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>

@@ -35,6 +35,8 @@ import {
   Paperclip,
   Star,
   Search,
+  History,
+  CheckCheck,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
@@ -63,12 +65,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { calculateCteTaxes } from '@/lib/tax-utils'
+import {
+  calculateCteTaxes,
+  validateCte,
+  ValidationResult,
+} from '@/lib/tax-utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ValidationSettingsDialog } from '@/components/operations/ValidationSettingsDialog'
 import { CteDocumentsDialog } from '@/components/operations/CteDocumentsDialog'
 import { Input } from '@/components/ui/input'
+import { AuditLogDialog } from '@/components/operations/AuditLogDialog'
+import { BulkValidationResultDialog } from '@/components/operations/BulkValidationResultDialog'
 
 const ITEMS_PER_PAGE = 10
 
@@ -85,12 +93,16 @@ export default function CTeList() {
     userRole,
     standardCteId,
     setStandardCte,
+    validationSettings,
+    conditionalRules,
   } = useErpStore()
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isValidationSettingsOpen, setIsValidationSettingsOpen] =
     useState(false)
   const [isDocumentsOpen, setIsDocumentsOpen] = useState(false)
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false)
+  const [isBulkResultOpen, setIsBulkResultOpen] = useState(false)
   const [transactionToEdit, setTransactionToEdit] =
     useState<Transaction | null>(null)
   const [transactionToDelete, setTransactionToDelete] =
@@ -101,6 +113,9 @@ export default function CTeList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [cteToMakeStandard, setCteToMakeStandard] =
     useState<Transaction | null>(null)
+  const [bulkResults, setBulkResults] = useState<
+    { tx: Transaction; result: ValidationResult }[]
+  >([])
 
   // Trigger pending check on mount
   useEffect(() => {
@@ -283,6 +298,21 @@ export default function CTeList() {
     }
   }
 
+  const handleBulkValidateStandard = () => {
+    if (selectedItems.length === 0) return
+
+    const results = selectedItems
+      .map((id) => transactions.find((t) => t.id === id))
+      .filter((t): t is Transaction => !!t)
+      .map((tx) => ({
+        tx,
+        result: validateCte(tx, validationSettings, conditionalRules),
+      }))
+
+    setBulkResults(results)
+    setIsBulkResultOpen(true)
+  }
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedItems(currentData.map((t) => t.id))
@@ -411,26 +441,36 @@ export default function CTeList() {
         </div>
         <div className="flex flex-wrap gap-2">
           {selectedItems.length > 0 && (
-            <Button
-              variant="secondary"
-              onClick={handleValidateSefaz}
-              disabled={isValidating}
-            >
-              {isValidating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <ShieldCheck className="mr-2 h-4 w-4" />
-              )}
-              Validar SEFAZ ({selectedItems.length})
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                onClick={handleValidateSefaz}
+                disabled={isValidating}
+              >
+                {isValidating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                )}
+                Validar SEFAZ ({selectedItems.length})
+              </Button>
+              <Button variant="outline" onClick={handleBulkValidateStandard}>
+                <CheckCheck className="mr-2 h-4 w-4" /> Validar c/ Padrão
+              </Button>
+            </>
           )}
           {userRole === 'admin' && (
-            <Button
-              variant="outline"
-              onClick={() => setIsValidationSettingsOpen(true)}
-            >
-              <Settings2 className="mr-2 h-4 w-4" /> Configurar Validações
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setIsAuditLogOpen(true)}>
+                <History className="mr-2 h-4 w-4" /> Histórico Padrão
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setIsValidationSettingsOpen(true)}
+              >
+                <Settings2 className="mr-2 h-4 w-4" /> Configurar Validações
+              </Button>
+            </>
           )}
           <Button variant="outline" asChild>
             <Link to="/reports/cte-tax">
@@ -767,6 +807,14 @@ export default function CTeList() {
         open={isDocumentsOpen}
         onOpenChange={setIsDocumentsOpen}
         transaction={transactionToEdit}
+      />
+
+      <AuditLogDialog open={isAuditLogOpen} onOpenChange={setIsAuditLogOpen} />
+
+      <BulkValidationResultDialog
+        open={isBulkResultOpen}
+        onOpenChange={setIsBulkResultOpen}
+        results={bulkResults}
       />
 
       <AlertDialog

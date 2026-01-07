@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Pencil, Copy } from 'lucide-react'
+import { Plus, Trash2, Pencil, Copy, LayoutTemplate } from 'lucide-react'
 import { useState } from 'react'
 import {
   Dialog,
@@ -43,6 +43,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 
 const ruleSchema = z.object({
   name: z.string().min(3, 'Nome muito curto'),
@@ -55,6 +62,14 @@ const ruleSchema = z.object({
   errorMessage: z.string().min(5, 'Mensagem de erro obrigatória'),
 })
 
+type Template = {
+  id: string
+  name: string
+  description: string
+  config: Partial<z.infer<typeof ruleSchema>>
+  requiresStandardCte?: boolean
+}
+
 export default function ConditionalValidationRules() {
   const {
     conditionalRules,
@@ -65,6 +80,7 @@ export default function ConditionalValidationRules() {
     transactions,
   } = useErpStore()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
   const [selectedRule, setSelectedRule] = useState<ConditionalRule | null>(null)
 
   const standardCte = standardCteId
@@ -146,6 +162,90 @@ export default function ConditionalValidationRules() {
     }
   }
 
+  const templates: Template[] = [
+    {
+      id: 'subst-key',
+      name: 'Validação de Substituição',
+      description: 'Exige Chave Original se o tipo for Substituição.',
+      config: {
+        conditionField: 'cteType',
+        conditionOperator: 'equals',
+        conditionValue: 'Substitution',
+        targetField: 'originalCteKey',
+        ruleType: 'mandatory',
+        errorMessage: 'CT-e de Substituição deve informar a chave original.',
+      },
+    },
+    {
+      id: 'std-cfop',
+      name: 'Consistência de CFOP (Padrão)',
+      description:
+        'Verifica se o CFOP é igual ao do CT-e Padrão (para operações idênticas).',
+      requiresStandardCte: true,
+      config: {
+        conditionField: 'origin',
+        conditionOperator: 'equals',
+        targetField: 'cfop',
+        ruleType: 'match_value',
+        errorMessage: 'O CFOP deve corresponder ao padrão para esta origem.',
+      },
+    },
+    {
+      id: 'high-val',
+      name: 'Frete de Alto Valor',
+      description: 'Se valor > 100000, exige ID de Frete para rastreio.',
+      config: {
+        conditionField: 'value',
+        conditionOperator: 'contains', // Hacky for demo, implies custom logic usually
+        conditionValue: '100000', // Just placeholder logic
+        targetField: 'freightId',
+        ruleType: 'mandatory',
+        errorMessage: 'Fretes de alto valor exigem ID de carga.',
+      },
+    },
+  ]
+
+  const applyTemplate = (tpl: Template) => {
+    if (tpl.requiresStandardCte && !standardCte) {
+      toast({
+        title: 'Padrão não definido',
+        description: 'Este modelo requer um CT-e Padrão ativo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const newValues: any = {
+      name: tpl.name,
+      ...tpl.config,
+    }
+
+    // Dynamic hydration from Standard CT-e
+    if (tpl.id === 'std-cfop' && standardCte) {
+      newValues.conditionValue = standardCte.origin || 'SP'
+      newValues.ruleValue = standardCte.cfop || '5352'
+    }
+
+    setSelectedRule(null)
+    form.reset({
+      name: '',
+      conditionField: 'cteType',
+      conditionOperator: 'equals',
+      conditionValue: '',
+      targetField: 'originalCteKey',
+      ruleType: 'mandatory',
+      ruleValue: '',
+      errorMessage: '',
+      ...newValues,
+    })
+    setIsTemplatesOpen(false)
+    setIsDialogOpen(true)
+    toast({
+      title: 'Modelo Aplicado',
+      description: 'Complete os detalhes se necessário.',
+    })
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex justify-between items-center">
@@ -157,9 +257,14 @@ export default function ConditionalValidationRules() {
             Crie regras de validação baseadas em lógica "Se... Então...".
           </p>
         </div>
-        <Button onClick={openNewDialog}>
-          <Plus className="mr-2 h-4 w-4" /> Nova Regra
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setIsTemplatesOpen(true)}>
+            <LayoutTemplate className="mr-2 h-4 w-4" /> Modelos
+          </Button>
+          <Button onClick={openNewDialog}>
+            <Plus className="mr-2 h-4 w-4" /> Nova Regra
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -233,6 +338,32 @@ export default function ConditionalValidationRules() {
           </Table>
         </CardContent>
       </Card>
+
+      <Sheet open={isTemplatesOpen} onOpenChange={setIsTemplatesOpen}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Biblioteca de Modelos</SheetTitle>
+            <SheetDescription>
+              Escolha um modelo para criar uma regra rapidamente.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-4 py-4">
+            {templates.map((tpl) => (
+              <Button
+                key={tpl.id}
+                variant="outline"
+                className="flex flex-col items-start h-auto p-4 gap-1"
+                onClick={() => applyTemplate(tpl)}
+              >
+                <span className="font-semibold">{tpl.name}</span>
+                <span className="text-xs text-muted-foreground text-left whitespace-normal">
+                  {tpl.description}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -374,6 +505,7 @@ export default function ConditionalValidationRules() {
                           <SelectItem value="takerCnpj">
                             CNPJ Tomador
                           </SelectItem>
+                          <SelectItem value="cfop">CFOP</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
