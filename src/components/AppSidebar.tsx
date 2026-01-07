@@ -30,6 +30,7 @@ import {
   TrendingUp,
   Settings2,
   LogOut,
+  Files,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -159,6 +160,19 @@ export function AppSidebar() {
                   <Link to="/operations/expenses">
                     <Receipt />
                     <span>Despesas</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith(
+                    '/operations/attachments',
+                  )}
+                >
+                  <Link to="/operations/attachments">
+                    <Files />
+                    <span>Central de Anexos</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

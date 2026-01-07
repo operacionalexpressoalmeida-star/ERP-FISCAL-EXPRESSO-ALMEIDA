@@ -172,6 +172,9 @@ export interface Transaction {
   odometer?: number
   relatedTransactionId?: string // Link expenses to revenue (CT-e)
   attachmentUrl?: string
+  attachmentType?: string
+  attachmentName?: string
+  attachmentSize?: number
 }
 
 export interface LalurEntry {

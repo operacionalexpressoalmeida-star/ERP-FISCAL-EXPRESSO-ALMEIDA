@@ -35,6 +35,7 @@ import {
   MoreVertical,
   Paperclip,
   Download,
+  Eye,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -110,6 +111,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { FilePreviewDialog } from '@/components/operations/FilePreviewDialog'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -181,6 +183,11 @@ export default function ExpenseList() {
     null,
   )
   const [activeTab, setActiveTab] = useState('list')
+  const [previewFile, setPreviewFile] = useState<{
+    url: string
+    name: string
+    type: string
+  } | null>(null)
 
   const ciotConfig = apiConfigs.find((c) => c.type === 'payment')
 
@@ -252,21 +259,28 @@ export default function ExpenseList() {
         : undefined
 
     let attachmentUrl = selectedTransaction?.attachmentUrl
+    let attachmentType = selectedTransaction?.attachmentType
+    let attachmentName = selectedTransaction?.attachmentName
+    let attachmentSize = selectedTransaction?.attachmentSize
 
     if (values.attachment && values.attachment.length > 0) {
       try {
         const file = values.attachment[0]
-        if (file.type !== 'application/pdf') {
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png']
+
+        if (!allowedTypes.includes(file.type)) {
           toast({
             title: 'Arquivo Inválido',
-            description: 'Apenas arquivos PDF são permitidos.',
+            description: 'Apenas PDF, JPG e PNG são permitidos.',
             variant: 'destructive',
           })
           return
         }
-        // In a real app, upload to S3/Storage and get URL.
-        // For this demo, we use DataURL to simulate persistence.
+
         attachmentUrl = await fileToBase64(file)
+        attachmentType = file.type
+        attachmentName = file.name
+        attachmentSize = file.size
       } catch (error) {
         toast({
           title: 'Erro no Upload',
@@ -286,6 +300,9 @@ export default function ExpenseList() {
         icmsValue,
         contractId,
         attachmentUrl,
+        attachmentType,
+        attachmentName,
+        attachmentSize,
       })
       toast({
         title: 'Despesa Atualizada',
@@ -301,6 +318,9 @@ export default function ExpenseList() {
         icmsValue,
         contractId,
         attachmentUrl,
+        attachmentType,
+        attachmentName,
+        attachmentSize,
       })
       toast({
         title: 'Despesa Lançada',
@@ -522,6 +542,16 @@ export default function ExpenseList() {
     value: { label: 'Valor', color: 'hsl(var(--primary))' },
   }
 
+  const handlePreviewAttachment = (t: Transaction) => {
+    if (t.attachmentUrl) {
+      setPreviewFile({
+        url: t.attachmentUrl,
+        name: t.attachmentName || `Anexo - ${t.description}`,
+        type: t.attachmentType || 'application/pdf',
+      })
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -685,14 +715,13 @@ export default function ExpenseList() {
                           )}
                           {t.attachmentUrl ? (
                             <div className="flex items-center gap-1">
-                              <a
-                                href={t.attachmentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                              <Button
+                                variant="link"
+                                className="h-auto p-0 text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                onClick={() => handlePreviewAttachment(t)}
                               >
                                 <Paperclip className="h-3 w-3" /> Comprovante
-                              </a>
+                              </Button>
                             </div>
                           ) : (
                             <span className="text-xs text-muted-foreground italic">
@@ -1125,12 +1154,12 @@ export default function ExpenseList() {
                 name="attachment"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Anexar Comprovante (PDF)</FormLabel>
+                    <FormLabel>Anexar Comprovante (PDF, JPG, PNG)</FormLabel>
                     <FormControl>
                       <div className="flex flex-col gap-2">
                         <Input
                           type="file"
-                          accept="application/pdf"
+                          accept=".pdf,.jpg,.jpeg,.png"
                           onChange={(e) =>
                             field.onChange(
                               e.target.files ? e.target.files : null,
@@ -1140,15 +1169,18 @@ export default function ExpenseList() {
                         {selectedTransaction?.attachmentUrl && (
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <CheckCircle className="h-3 w-3 text-green-500" />
-                            Arquivo atual anexado.{' '}
-                            <a
-                              href={selectedTransaction.attachmentUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline text-primary"
+                            Arquivo atual anexado:{' '}
+                            {selectedTransaction.attachmentName || 'Anexo'}
+                            <Button
+                              variant="link"
+                              className="h-auto p-0 text-xs text-blue-600 hover:underline"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                handlePreviewAttachment(selectedTransaction)
+                              }}
                             >
                               Visualizar
-                            </a>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -1220,6 +1252,14 @@ export default function ExpenseList() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <FilePreviewDialog
+        isOpen={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        fileUrl={previewFile?.url}
+        fileName={previewFile?.name}
+        fileType={previewFile?.type}
+      />
 
       <AlertDialog
         open={!!transactionToDelete}

@@ -15,6 +15,7 @@ import Index from './pages/Index'
 import OrganizationList from './pages/organization/OrganizationList'
 import CTeList from './pages/operations/CTeList'
 import ExpenseList from './pages/operations/ExpenseList'
+import AttachmentCenter from './pages/operations/AttachmentCenter'
 import LalurPage from './pages/accounting/LalurPage'
 import TaxPage from './pages/accounting/TaxPage'
 import DrePage from './pages/reports/DrePage'
@@ -46,6 +47,10 @@ const App = () => (
             <Route path="/organization" element={<OrganizationList />} />
             <Route path="/operations/cte" element={<CTeList />} />
             <Route path="/operations/expenses" element={<ExpenseList />} />
+            <Route
+              path="/operations/attachments"
+              element={<AttachmentCenter />}
+            />
             <Route path="/assets/fixed-assets" element={<AssetList />} />
             <Route path="/contracts" element={<ContractList />} />
             <Route
