@@ -33,6 +33,8 @@ import {
   XCircle,
   AlertCircle,
   MoreVertical,
+  Paperclip,
+  Download,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -103,6 +105,11 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -120,10 +127,21 @@ const expenseSchema = z.object({
   fuelType: z.string().optional(),
   fuelQuantity: z.coerce.number().optional(),
   odometer: z.coerce.number().optional(),
+  attachment: z.any().optional(), // File input handler
 })
 
 const ITEMS_PER_PAGE = 10
 const TARGET_CNPJ = '49.069.638/0001-78'
+
+// Helper to convert file to Base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = (error) => reject(error)
+  })
+}
 
 export default function ExpenseList() {
   const {
@@ -199,6 +217,7 @@ export default function ExpenseList() {
         fuelType: selectedTransaction.fuelType || '',
         fuelQuantity: selectedTransaction.fuelQuantity || 0,
         odometer: selectedTransaction.odometer || 0,
+        attachment: undefined,
       })
     } else {
       form.reset({
@@ -217,11 +236,12 @@ export default function ExpenseList() {
         fuelType: '',
         fuelQuantity: 0,
         odometer: 0,
+        attachment: undefined,
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
 
-  function onSubmit(values: z.infer<typeof expenseSchema>) {
+  async function onSubmit(values: z.infer<typeof expenseSchema>) {
     const pisValue = values.hasCreditPisCofins ? values.value * 0.0165 : 0
     const cofinsValue = values.hasCreditPisCofins ? values.value * 0.076 : 0
     const icmsValue = values.hasCreditIcms ? values.value * 0.12 : 0
@@ -231,6 +251,32 @@ export default function ExpenseList() {
         ? values.contractId
         : undefined
 
+    let attachmentUrl = selectedTransaction?.attachmentUrl
+
+    if (values.attachment && values.attachment.length > 0) {
+      try {
+        const file = values.attachment[0]
+        if (file.type !== 'application/pdf') {
+          toast({
+            title: 'Arquivo Inválido',
+            description: 'Apenas arquivos PDF são permitidos.',
+            variant: 'destructive',
+          })
+          return
+        }
+        // In a real app, upload to S3/Storage and get URL.
+        // For this demo, we use DataURL to simulate persistence.
+        attachmentUrl = await fileToBase64(file)
+      } catch (error) {
+        toast({
+          title: 'Erro no Upload',
+          description: 'Não foi possível processar o arquivo.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     if (selectedTransaction) {
       updateTransaction(selectedTransaction.id, {
         ...values,
@@ -239,6 +285,7 @@ export default function ExpenseList() {
         cofinsValue,
         icmsValue,
         contractId,
+        attachmentUrl,
       })
       toast({
         title: 'Despesa Atualizada',
@@ -253,6 +300,7 @@ export default function ExpenseList() {
         cofinsValue,
         icmsValue,
         contractId,
+        attachmentUrl,
       })
       toast({
         title: 'Despesa Lançada',
@@ -633,6 +681,22 @@ export default function ExpenseList() {
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
                               <FileText className="h-3 w-3" />{' '}
                               {t.documentNumber}
+                            </span>
+                          )}
+                          {t.attachmentUrl ? (
+                            <div className="flex items-center gap-1">
+                              <a
+                                href={t.attachmentUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                              >
+                                <Paperclip className="h-3 w-3" /> Comprovante
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              Sem anexo
                             </span>
                           )}
                         </div>
@@ -1050,6 +1114,45 @@ export default function ExpenseList() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Attachment Field */}
+              <FormField
+                control={form.control}
+                name="attachment"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Anexar Comprovante (PDF)</FormLabel>
+                    <FormControl>
+                      <div className="flex flex-col gap-2">
+                        <Input
+                          type="file"
+                          accept="application/pdf"
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.files ? e.target.files : null,
+                            )
+                          }
+                        />
+                        {selectedTransaction?.attachmentUrl && (
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <CheckCircle className="h-3 w-3 text-green-500" />
+                            Arquivo atual anexado.{' '}
+                            <a
+                              href={selectedTransaction.attachmentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline text-primary"
+                            >
+                              Visualizar
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
