@@ -30,7 +30,7 @@ export interface Asset {
   acquisitionDate: string
   originalValue: number
   residualValue: number
-  depreciationRate: number // % per year
+  usefulLife: number // months
   status: AssetStatus
   lastMaintenanceDate?: string
   nextMaintenanceDate?: string
@@ -286,7 +286,7 @@ export const useErpStore = create<ErpState>()(
           acquisitionDate: '2022-01-15',
           originalValue: 850000,
           residualValue: 150000,
-          depreciationRate: 15,
+          usefulLife: 60, // 5 years
           status: 'Active',
           lastMaintenanceDate: '2023-12-10',
           nextMaintenanceDate: '2024-06-10',

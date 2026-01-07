@@ -16,8 +16,9 @@ import {
   PenTool,
   AlertTriangle,
   FileText,
+  Calculator,
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
   Dialog,
@@ -57,6 +58,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
+import { differenceInMonths } from 'date-fns'
 
 const assetSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -66,7 +68,7 @@ const assetSchema = z.object({
   acquisitionDate: z.string(),
   originalValue: z.coerce.number().min(0.01),
   residualValue: z.coerce.number().min(0),
-  depreciationRate: z.coerce.number().min(0).max(100),
+  usefulLife: z.coerce.number().min(1, 'Vida útil deve ser maior que 0'),
   status: z.enum([
     'Active',
     'Sold',
@@ -83,7 +85,6 @@ const ITEMS_PER_PAGE = 10
 export default function AssetList() {
   const {
     getFilteredAssets,
-    getFilteredTransactions,
     addAsset,
     updateAsset,
     removeAsset,
@@ -95,7 +96,6 @@ export default function AssetList() {
   } = useErpStore()
 
   const assets = getFilteredAssets()
-  const transactions = getFilteredTransactions()
   const [currentPage, setCurrentPage] = useState(1)
   const totalPages = Math.ceil(assets.length / ITEMS_PER_PAGE)
 
@@ -115,6 +115,7 @@ export default function AssetList() {
       acquisitionDate: new Date().toISOString().split('T')[0],
       status: 'Active',
       category: 'Vehicle',
+      usefulLife: 60,
     },
   })
 
@@ -144,7 +145,7 @@ export default function AssetList() {
         acquisitionDate: new Date().toISOString().split('T')[0],
         originalValue: 0,
         residualValue: 0,
-        depreciationRate: 10,
+        usefulLife: 60,
         status: 'Active',
         category: 'Vehicle',
         licensingExpiryDate: '',
@@ -153,32 +154,58 @@ export default function AssetList() {
     }
   }, [selectedAsset, form, selectedCompanyId, isMaintDialogOpen])
 
-  function calculateDepreciation(asset: Asset) {
-    const years =
-      (new Date().getTime() - new Date(asset.acquisitionDate).getTime()) /
-      (1000 * 60 * 60 * 24 * 365)
-    if (years < 0) return 0
-    const depreciableAmount = asset.originalValue - asset.residualValue
-    const depreciation =
-      depreciableAmount * (asset.depreciationRate / 100) * years
-    return Math.min(depreciation, depreciableAmount)
+  function calculateAssetFinancials(asset: Asset) {
+    const today = new Date()
+    const acquisition = new Date(asset.acquisitionDate)
+    const monthsElapsed = Math.max(0, differenceInMonths(today, acquisition))
+
+    const depreciableAmount = Math.max(
+      0,
+      asset.originalValue - asset.residualValue,
+    )
+    const monthlyDepreciation =
+      asset.usefulLife > 0 ? depreciableAmount / asset.usefulLife : 0
+
+    // Calculate Accumulated Depreciation (capped at depreciable amount)
+    const accumulatedDepreciation = Math.min(
+      monthlyDepreciation * monthsElapsed,
+      depreciableAmount,
+    )
+
+    const netBookValue = asset.originalValue - accumulatedDepreciation
+    const isFullyDepreciated =
+      accumulatedDepreciation >= depreciableAmount && depreciableAmount > 0
+
+    return {
+      monthlyDepreciation,
+      accumulatedDepreciation,
+      netBookValue,
+      isFullyDepreciated,
+      monthsElapsed,
+    }
   }
 
-  // Calculate Monthly Maintenance
-  const currentMonthMaintenance = transactions
-    .filter(
-      (t) =>
-        t.type === 'expense' &&
-        t.category === 'Maintenance' &&
-        new Date(t.date).getMonth() === new Date().getMonth() &&
-        new Date(t.date).getFullYear() === new Date().getFullYear(),
-    )
-    .reduce((acc, t) => acc + t.value, 0)
+  // Dashboard Aggregations
+  const dashboardStats = assets.reduce(
+    (stats, asset) => {
+      const financials = calculateAssetFinancials(asset)
 
-  // Calculate Fleet Value
-  const totalFleetValue = assets.reduce(
-    (a, b) => a + (b.originalValue - calculateDepreciation(b)),
-    0,
+      stats.totalOriginalValue += asset.originalValue
+      stats.totalNetBookValue += financials.netBookValue
+      stats.totalAccumulatedDepreciation += financials.accumulatedDepreciation
+
+      if (asset.status === 'Active') {
+        stats.currentPeriodDepreciation += financials.monthlyDepreciation
+      }
+
+      return stats
+    },
+    {
+      totalOriginalValue: 0,
+      totalNetBookValue: 0,
+      totalAccumulatedDepreciation: 0,
+      currentPeriodDepreciation: 0,
+    },
   )
 
   function onSubmit(values: z.infer<typeof assetSchema>) {
@@ -207,7 +234,7 @@ export default function AssetList() {
         value: Number(values.value),
         date: values.date,
         assetId: selectedAsset.id,
-        status: 'approved', // Auto approve from asset screen?
+        status: 'approved',
         icmsValue: 0,
         pisValue: 0,
         cofinsValue: 0,
@@ -230,8 +257,21 @@ export default function AssetList() {
     }
   }
 
-  const getStatusBadge = (status: Asset['status']) => {
-    switch (status) {
+  const getStatusBadge = (asset: Asset) => {
+    const financials = calculateAssetFinancials(asset)
+
+    if (financials.isFullyDepreciated) {
+      return (
+        <Badge
+          variant="secondary"
+          className="bg-gray-200 text-gray-800 border-gray-300"
+        >
+          Depreciado
+        </Badge>
+      )
+    }
+
+    switch (asset.status) {
       case 'Active':
         return <Badge className="bg-emerald-600">Ativo</Badge>
       case 'In Maintenance':
@@ -243,7 +283,7 @@ export default function AssetList() {
       case 'WrittenOff':
         return <Badge variant="destructive">Baixado</Badge>
       default:
-        return <Badge variant="outline">{status}</Badge>
+        return <Badge variant="outline">{asset.status}</Badge>
     }
   }
 
@@ -257,10 +297,10 @@ export default function AssetList() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Gestão de Frota e Ativos
+            Gestão de Ativos Imobilizados
           </h1>
           <p className="text-muted-foreground">
-            Controle automatizado de manutenção, documentos e custos.
+            Controle contábil, depreciação automática e gestão de frota.
           </p>
         </div>
         {userRole === 'admin' && (
@@ -278,40 +318,50 @@ export default function AssetList() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Valor Total da Frota</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
-              {formatCurrency(totalFleetValue)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Manutenção (Mês Atual)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(currentMonthMaintenance)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Veículos em Manutenção</CardTitle>
+            <CardTitle className="text-sm">Valor de Aquisição Total</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {assets.filter((a) => a.status === 'In Maintenance').length}
+              {formatCurrency(dashboardStats.totalOriginalValue)}
             </div>
+            <p className="text-xs text-muted-foreground">Custo Histórico</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Total de Ativos</CardTitle>
+            <CardTitle className="text-sm">Depreciação Acumulada</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{assets.length}</div>
+            <div className="text-2xl font-bold text-rose-600">
+              {formatCurrency(dashboardStats.totalAccumulatedDepreciation)}
+            </div>
+            <p className="text-xs text-muted-foreground">Total Depreciado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Valor Contábil Líquido</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">
+              {formatCurrency(dashboardStats.totalNetBookValue)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Valor Atual da Frota
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Depreciação do Mês</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">
+              {formatCurrency(dashboardStats.currentPeriodDepreciation)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Impacto no Resultado
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -326,23 +376,29 @@ export default function AssetList() {
               <TableRow>
                 <TableHead>Bem / Placa</TableHead>
                 <TableHead>Categoria</TableHead>
-                <TableHead>Próx. Manutenção</TableHead>
-                <TableHead>Consumo Médio</TableHead>
-                <TableHead className="text-right">Valor Atual</TableHead>
+                <TableHead>Aquisição</TableHead>
+                <TableHead>Vida Útil</TableHead>
+                <TableHead className="text-right">Valor Original</TableHead>
+                <TableHead className="text-right">Dep. Acumulada</TableHead>
+                <TableHead className="text-right">Valor Líquido</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 {userRole === 'admin' && <TableHead className="w-[120px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {currentData.map((asset) => {
-                const depreciation = calculateDepreciation(asset)
-                const currentVal = asset.originalValue - depreciation
+                const financials = calculateAssetFinancials(asset)
                 const isOverdue =
                   asset.nextMaintenanceDate &&
                   new Date(asset.nextMaintenanceDate) < new Date()
 
                 return (
-                  <TableRow key={asset.id}>
+                  <TableRow
+                    key={asset.id}
+                    className={
+                      financials.isFullyDepreciated ? 'bg-muted/10' : ''
+                    }
+                  >
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="font-medium">{asset.name}</span>
@@ -351,37 +407,36 @@ export default function AssetList() {
                             {asset.plate}
                           </span>
                         )}
+                        {isOverdue && (
+                          <div className="flex items-center gap-1 text-[10px] text-rose-600 font-bold mt-1">
+                            <AlertTriangle className="h-3 w-3" /> Manutenção
+                            Vencida
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{asset.category}</TableCell>
                     <TableCell>
-                      {asset.nextMaintenanceDate ? (
-                        <div
-                          className={`flex items-center gap-1 ${isOverdue ? 'text-rose-600 font-bold' : ''}`}
-                        >
-                          {isOverdue && <AlertTriangle className="h-3 w-3" />}
-                          {new Date(
-                            asset.nextMaintenanceDate,
-                          ).toLocaleDateString('pt-BR')}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
+                      {new Date(asset.acquisitionDate).toLocaleDateString(
+                        'pt-BR',
                       )}
                     </TableCell>
                     <TableCell>
-                      {asset.averageConsumption ? (
-                        <span className="font-mono">
-                          {asset.averageConsumption} km/L
-                        </span>
-                      ) : (
-                        '-'
-                      )}
+                      <span className="text-xs">
+                        {financials.monthsElapsed} / {asset.usefulLife} meses
+                      </span>
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(currentVal)}
+                      {formatCurrency(asset.originalValue)}
+                    </TableCell>
+                    <TableCell className="text-right text-rose-600 text-xs">
+                      {formatCurrency(financials.accumulatedDepreciation)}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">
+                      {formatCurrency(financials.netBookValue)}
                     </TableCell>
                     <TableCell className="text-center">
-                      {getStatusBadge(asset.status)}
+                      {getStatusBadge(asset)}
                     </TableCell>
                     {userRole === 'admin' && (
                       <TableCell className="flex justify-end gap-2">
@@ -531,6 +586,66 @@ export default function AssetList() {
 
               <div className="bg-muted/30 p-4 rounded-md border space-y-4">
                 <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Calculator className="h-4 w-4" /> Dados Contábeis
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="acquisitionDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Data Aquisição</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="originalValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Valor de Aquisição</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="residualValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Valor Residual</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="usefulLife"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vida Útil (Meses)</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="bg-muted/30 p-4 rounded-md border space-y-4">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Controle de Documentação
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -563,93 +678,37 @@ export default function AssetList() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="acquisitionDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Data Aquisição</FormLabel>
+              <FormField
+                control={form.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Status Operacional</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
                       <FormControl>
-                        <Input type="date" {...field} />
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="originalValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Valor Original</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="residualValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Valor Residual</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="depreciationRate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Taxa Depreciação (% a.a.)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.1" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Active">Ativo</SelectItem>
-                          <SelectItem value="In Maintenance">
-                            Em Manutenção
-                          </SelectItem>
-                          <SelectItem value="Doc Pending">
-                            Doc. Pendente
-                          </SelectItem>
-                          <SelectItem value="Sold">Vendido</SelectItem>
-                          <SelectItem value="WrittenOff">Baixado</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                      <SelectContent>
+                        <SelectItem value="Active">Ativo</SelectItem>
+                        <SelectItem value="In Maintenance">
+                          Em Manutenção
+                        </SelectItem>
+                        <SelectItem value="Doc Pending">
+                          Doc. Pendente
+                        </SelectItem>
+                        <SelectItem value="Sold">Vendido</SelectItem>
+                        <SelectItem value="WrittenOff">Baixado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <Button type="submit" className="w-full">
                 Salvar
               </Button>
