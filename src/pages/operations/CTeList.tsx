@@ -23,12 +23,19 @@ import {
   AlertTriangle,
   Clock,
   BarChart3,
+  Plus,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState } from 'react'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
+import {
+  CteFormDialog,
+  CteFormData,
+} from '@/components/operations/CteFormDialog'
 import { ParsedFiscalDoc } from '@/lib/xml-parser'
 import { toast } from '@/hooks/use-toast'
 import { Link } from 'react-router-dom'
@@ -37,13 +44,34 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 const ITEMS_PER_PAGE = 10
 
 export default function CTeList() {
-  const { getFilteredTransactions, addTransaction, selectedCompanyId } =
-    useErpStore()
+  const {
+    getFilteredTransactions,
+    addTransaction,
+    updateTransaction,
+    removeTransaction,
+    selectedCompanyId,
+    userRole,
+  } = useErpStore()
   const [isImportOpen, setIsImportOpen] = useState(false)
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [transactionToEdit, setTransactionToEdit] =
+    useState<Transaction | null>(null)
+  const [transactionToDelete, setTransactionToDelete] =
+    useState<Transaction | null>(null)
 
   // Only Revenue transactions (CT-e)
   const transactions = getFilteredTransactions().filter(
@@ -102,6 +130,49 @@ export default function CTeList() {
     }
   }
 
+  const handleManualSave = (data: CteFormData) => {
+    if (transactionToEdit) {
+      updateTransaction(transactionToEdit.id, { ...data, type: 'revenue' })
+      toast({
+        title: 'CT-e Atualizado',
+        description: 'As alterações foram salvas com sucesso.',
+      })
+    } else {
+      addTransaction({
+        ...data,
+        type: 'revenue',
+        status: 'approved', // Manual entry is approved by default
+      })
+      toast({
+        title: 'CT-e Registrado',
+        description: 'Novo conhecimento de transporte adicionado.',
+      })
+    }
+    setTransactionToEdit(null)
+  }
+
+  const handleDelete = () => {
+    if (transactionToDelete) {
+      removeTransaction(transactionToDelete.id)
+      toast({
+        title: 'CT-e Excluído',
+        description: 'O registro foi removido permanentemente.',
+        variant: 'destructive',
+      })
+      setTransactionToDelete(null)
+    }
+  }
+
+  const openEditDialog = (t: Transaction) => {
+    setTransactionToEdit(t)
+    setIsFormOpen(true)
+  }
+
+  const openNewDialog = () => {
+    setTransactionToEdit(null)
+    setIsFormOpen(true)
+  }
+
   // Alert Logic Helper
   const getAlertStatus = (t: Transaction) => {
     const today = new Date()
@@ -142,7 +213,7 @@ export default function CTeList() {
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
             Conhecimentos de Transporte (CT-e)
@@ -151,17 +222,22 @@ export default function CTeList() {
             Gestão de emissões fiscais e alertas operacionais.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" asChild className="hidden sm:flex">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild className="hidden lg:flex">
             <Link to="/reports/revenue-analytics">
               <BarChart3 className="mr-2 h-4 w-4" /> Análise Avançada
             </Link>
           </Button>
-          <Button variant="default" onClick={() => setIsImportOpen(true)}>
+          <Button variant="outline" onClick={() => setIsImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" /> Importar XML
           </Button>
-          <Button variant="outline" className="hidden sm:flex">
-            <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
+          {userRole === 'admin' && (
+            <Button variant="default" onClick={openNewDialog}>
+              <Plus className="mr-2 h-4 w-4" /> Nova Emissão
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" className="hidden sm:flex">
+            <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -170,7 +246,7 @@ export default function CTeList() {
         <CardHeader>
           <CardTitle>Histórico de Emissões</CardTitle>
           <CardDescription>
-            Documentos emitidos, status fiscal e alertas.
+            Documentos emitidos, status fiscal e tributos.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -181,15 +257,18 @@ export default function CTeList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Número</TableHead>
                 <TableHead>Origem / Destino</TableHead>
-                <TableHead>Categoria</TableHead>
+                <TableHead>Tomador</TableHead>
                 <TableHead>CFOP</TableHead>
+                <TableHead className="text-right">Tributos</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="text-center">Status</TableHead>
+                {userRole === 'admin' && <TableHead className="w-[80px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {currentData.map((t) => {
                 const alert = getAlertStatus(t)
+                const totalTaxes = t.icmsValue + t.pisValue + t.cofinsValue
                 return (
                   <TableRow key={t.id}>
                     <TableCell>
@@ -235,15 +314,33 @@ export default function CTeList() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className="font-normal text-xs"
-                      >
-                        {t.category || 'N/A'}
-                      </Badge>
+                      <div className="flex flex-col max-w-[150px]">
+                        <span className="truncate text-sm font-medium">
+                          {t.takerName || '-'}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {t.takerCnpj}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs font-mono text-muted-foreground">
                       {t.cfop || '-'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <div className="flex flex-col items-end text-xs text-muted-foreground">
+                            <span>Imp: {formatCurrency(totalTaxes)}</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="text-xs space-y-1">
+                            <p>ICMS: {formatCurrency(t.icmsValue)}</p>
+                            <p>PIS: {formatCurrency(t.pisValue)}</p>
+                            <p>COFINS: {formatCurrency(t.cofinsValue)}</p>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
                     </TableCell>
                     <TableCell className="text-right font-bold text-emerald-600">
                       {formatCurrency(t.value)}
@@ -260,13 +357,36 @@ export default function CTeList() {
                         {t.status === 'approved' ? 'Autorizado' : 'Pendente'}
                       </Badge>
                     </TableCell>
+                    {userRole === 'admin' && (
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditDialog(t)}
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setTransactionToDelete(t)}
+                            title="Excluir"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })}
               {currentData.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={10}
                     className="text-center h-24 text-muted-foreground"
                   >
                     Nenhum CT-e encontrado.
@@ -288,6 +408,36 @@ export default function CTeList() {
         onOpenChange={setIsImportOpen}
         onConfirm={handleImportConfirm}
       />
+
+      <CteFormDialog
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        initialData={transactionToEdit}
+        onSave={handleManualSave}
+      />
+
+      <AlertDialog
+        open={!!transactionToDelete}
+        onOpenChange={(open) => !open && setTransactionToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir CT-e?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação não pode ser desfeita e removerá o registro fiscal.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
