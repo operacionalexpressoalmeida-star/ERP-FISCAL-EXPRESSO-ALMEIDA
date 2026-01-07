@@ -29,6 +29,7 @@ import {
   Network,
   TrendingUp,
   Settings2,
+  LogOut,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -44,13 +45,17 @@ import { useErpStore, UserRole } from '@/stores/useErpStore'
 
 export function AppSidebar() {
   const location = useLocation()
-  const { userRole, setUserRole } = useErpStore()
+  const { userRole, currentUser, logout } = useErpStore()
 
   const roleLabels: Record<UserRole, string> = {
     admin: 'Administrador',
     operator: 'Operador',
     viewer: 'Consulta',
   }
+
+  // Define allowed routes based on role (simple logic for visual hiding)
+  const canAccess = (requiredRole: UserRole[]) =>
+    requiredRole.includes(userRole)
 
   return (
     <Sidebar collapsible="icon">
@@ -174,6 +179,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Restricted Fiscal Section for Admins only, or viewers/operators if logic allows. Usually Operators have limited access */}
         <SidebarGroup>
           <SidebarGroupLabel>Fiscal & Contábil</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -221,17 +227,19 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname.startsWith('/reports/dre')}
-                >
-                  <Link to="/reports/dre">
-                    <FileBarChart2 />
-                    <span>DRE Gerencial</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {canAccess(['admin', 'viewer']) && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname.startsWith('/reports/dre')}
+                  >
+                    <Link to="/reports/dre">
+                      <FileBarChart2 />
+                      <span>DRE Gerencial</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -315,13 +323,17 @@ export function AppSidebar() {
                 <SidebarMenuButton size="lg">
                   <Avatar className="h-8 w-8 rounded-lg">
                     <AvatarImage
-                      src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=manager"
-                      alt="User"
+                      src={currentUser?.avatar}
+                      alt={currentUser?.name}
                     />
-                    <AvatarFallback>EA</AvatarFallback>
+                    <AvatarFallback>
+                      {currentUser?.name?.slice(0, 2).toUpperCase() || 'US'}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">Operador</span>
+                    <span className="truncate font-semibold">
+                      {currentUser?.name || 'Usuário'}
+                    </span>
                     <span className="truncate text-xs text-muted-foreground">
                       {roleLabels[userRole]}
                     </span>
@@ -330,16 +342,14 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-[200px]">
-                <DropdownMenuLabel>Alternar Perfil</DropdownMenuLabel>
+                <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setUserRole('admin')}>
-                  Administrador
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setUserRole('operator')}>
-                  Operador
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setUserRole('viewer')}>
-                  Consulta
+                <DropdownMenuItem
+                  onClick={logout}
+                  className="text-red-600 focus:text-red-600"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sair do Sistema
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

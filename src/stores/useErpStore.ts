@@ -11,6 +11,14 @@ export type AssetStatus =
   | 'In Maintenance'
   | 'Doc Pending'
 
+export interface User {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+  avatar?: string
+}
+
 export interface Company {
   id: string
   name: string
@@ -175,6 +183,8 @@ export interface LalurEntry {
 }
 
 export interface ErpState {
+  isAuthenticated: boolean
+  currentUser: User | null
   companies: Company[]
   transactions: Transaction[]
   lalurEntries: LalurEntry[]
@@ -190,6 +200,8 @@ export interface ErpState {
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
+  login: (email: string, password: string) => Promise<boolean>
+  logout: () => void
   setContext: (companyId: string | 'consolidated') => void
   setUserRole: (role: UserRole) => void
   addCompany: (company: Omit<Company, 'id'>) => void
@@ -253,6 +265,8 @@ const extractPlate = (text: string) => {
 export const useErpStore = create<ErpState>()(
   persist(
     (set, get) => ({
+      isAuthenticated: false,
+      currentUser: null,
       selectedCompanyId: 'consolidated',
       userRole: 'admin',
       companies: [
@@ -333,6 +347,65 @@ export const useErpStore = create<ErpState>()(
       ],
       integrationLogs: [],
       categorizationRules: [],
+
+      login: async (email, password) => {
+        // Mock Authentication Logic
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            if (password === '123456') {
+              let user: User | null = null
+
+              if (email === 'admin@expressoalmeida.com') {
+                user = {
+                  id: 'u1',
+                  name: 'Administrador',
+                  email,
+                  role: 'admin',
+                  avatar:
+                    'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=admin',
+                }
+              } else if (email === 'operador@expressoalmeida.com') {
+                user = {
+                  id: 'u2',
+                  name: 'Operador Logístico',
+                  email,
+                  role: 'operator',
+                  avatar:
+                    'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=operator',
+                }
+              } else if (email === 'viewer@expressoalmeida.com') {
+                user = {
+                  id: 'u3',
+                  name: 'Auditor Externo',
+                  email,
+                  role: 'viewer',
+                  avatar:
+                    'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=viewer',
+                }
+              }
+
+              if (user) {
+                set({
+                  isAuthenticated: true,
+                  currentUser: user,
+                  userRole: user.role,
+                })
+                resolve(true)
+                return
+              }
+            }
+            resolve(false)
+          }, 800)
+        })
+      },
+
+      logout: () => {
+        set({
+          isAuthenticated: false,
+          currentUser: null,
+          userRole: 'viewer', // Reset to safest role
+        })
+      },
 
       setContext: (id) => set({ selectedCompanyId: id }),
       setUserRole: (role) => set({ userRole: role }),

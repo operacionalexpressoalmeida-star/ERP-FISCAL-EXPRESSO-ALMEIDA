@@ -6,6 +6,10 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Layout from './components/Layout'
 import NotFound from './pages/NotFound'
 
+// Auth Pages
+import LoginPage from './pages/auth/LoginPage'
+import { ProtectedRoute } from './components/ProtectedRoute'
+
 // New ERP Pages
 import Index from './pages/Index'
 import OrganizationList from './pages/organization/OrganizationList'
@@ -33,37 +37,61 @@ const App = () => (
       <Toaster />
       <Sonner />
       <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Index />} />
-          <Route path="/organization" element={<OrganizationList />} />
-          <Route path="/operations/cte" element={<CTeList />} />
-          <Route path="/operations/expenses" element={<ExpenseList />} />
-          <Route path="/assets/fixed-assets" element={<AssetList />} />
-          <Route path="/contracts" element={<ContractList />} />
-          <Route
-            path="/financial/reconciliation"
-            element={<BankReconciliation />}
-          />
-          <Route path="/accounting/lalur" element={<LalurPage />} />
-          <Route path="/accounting/taxes" element={<TaxPage />} />
-          <Route path="/reports/dre" element={<DrePage />} />
-          <Route path="/reports/tax" element={<TaxReports />} />
-          <Route path="/reports/cte-tax" element={<CteTaxReport />} />
-          <Route
-            path="/reports/custom-dashboard"
-            element={<CustomDashboard />}
-          />
-          <Route
-            path="/reports/revenue-analytics"
-            element={<RevenueAnalytics />}
-          />
-          <Route path="/admin/approvals" element={<ApprovalsPage />} />
-          <Route path="/admin/integrations" element={<IntegrationCenter />} />
-          <Route
-            path="/admin/categorization"
-            element={<CategorizationRules />}
-          />
+        <Route path="/login" element={<LoginPage />} />
+
+        {/* Protected Routes Wrapper */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Index />} />
+            <Route path="/organization" element={<OrganizationList />} />
+            <Route path="/operations/cte" element={<CTeList />} />
+            <Route path="/operations/expenses" element={<ExpenseList />} />
+            <Route path="/assets/fixed-assets" element={<AssetList />} />
+            <Route path="/contracts" element={<ContractList />} />
+            <Route
+              path="/financial/reconciliation"
+              element={<BankReconciliation />}
+            />
+
+            {/* Conditional Route Guarding within Protected Area can be done here or inside pages.
+                For simplicity we keep them accessible but Sidebar hides them. 
+                Strictly, we could wrap them with <ProtectedRoute allowedRoles={['admin']} /> */}
+            <Route path="/accounting/lalur" element={<LalurPage />} />
+            <Route path="/accounting/taxes" element={<TaxPage />} />
+
+            {/* DRE is sensitive */}
+            <Route
+              element={<ProtectedRoute allowedRoles={['admin', 'viewer']} />}
+            >
+              <Route path="/reports/dre" element={<DrePage />} />
+            </Route>
+
+            <Route path="/reports/tax" element={<TaxReports />} />
+            <Route path="/reports/cte-tax" element={<CteTaxReport />} />
+            <Route
+              path="/reports/custom-dashboard"
+              element={<CustomDashboard />}
+            />
+            <Route
+              path="/reports/revenue-analytics"
+              element={<RevenueAnalytics />}
+            />
+
+            {/* Admin Only Routes */}
+            <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+              <Route path="/admin/approvals" element={<ApprovalsPage />} />
+              <Route
+                path="/admin/integrations"
+                element={<IntegrationCenter />}
+              />
+              <Route
+                path="/admin/categorization"
+                element={<CategorizationRules />}
+              />
+            </Route>
+          </Route>
         </Route>
+
         <Route path="*" element={<NotFound />} />
       </Routes>
     </TooltipProvider>
