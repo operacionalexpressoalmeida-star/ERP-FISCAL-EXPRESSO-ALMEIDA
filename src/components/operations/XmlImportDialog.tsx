@@ -23,6 +23,7 @@ import {
   FileUp,
   AlertTriangle,
   CheckCircle2,
+  AlertOctagon,
 } from 'lucide-react'
 import { useState, useRef } from 'react'
 import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
@@ -32,6 +33,12 @@ import { toast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { useErpStore } from '@/stores/useErpStore'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface XmlImportDialogProps {
   open: boolean
@@ -46,6 +53,7 @@ export function XmlImportDialog({
   onOpenChange,
   onConfirm,
 }: XmlImportDialogProps) {
+  const { companies } = useErpStore()
   const [items, setItems] = useState<ParsedFiscalDoc[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle')
   const [progress, setProgress] = useState(0)
@@ -78,6 +86,7 @@ export function XmlImportDialog({
             }
             const item = await parseFiscalXml(file)
             calculateTaxesIfNeeded(item)
+            validateConsistency(item)
             return { status: 'success' as const, item }
           } catch (err: any) {
             return {
@@ -169,6 +178,43 @@ export function XmlImportDialog({
     }
   }
 
+  const validateConsistency = (item: ParsedFiscalDoc) => {
+    const warnings: string[] = []
+
+    // Check if issuer is known (for revenue)
+    if (item.type === 'revenue' && item.providerCnpj) {
+      const knownIssuer = companies.some((c) => {
+        // Strip formatting to compare
+        const cCnpj = c.cnpj.replace(/\D/g, '')
+        const iCnpj = item.providerCnpj?.replace(/\D/g, '')
+        return cCnpj === iCnpj
+      })
+      if (!knownIssuer) {
+        warnings.push('Emitente não reconhecido na base de empresas.')
+      }
+    }
+
+    // High Value Check
+    if (item.value > 100000) {
+      warnings.push('Valor elevado (> R$ 100k). Requer atenção.')
+    }
+
+    // Missing critical fields
+    if (!item.cfop) {
+      warnings.push('CFOP não identificado.')
+    }
+
+    // State validation
+    if (item.origin && item.origin.length !== 2) {
+      warnings.push('Sigla de origem inválida.')
+    }
+
+    item.consistencyWarnings = warnings
+    if (warnings.length > 0) {
+      item.status = 'pending' // Force pending if warnings exist
+    }
+  }
+
   const handleConfirm = () => {
     onConfirm(items)
     handleClose()
@@ -187,8 +233,8 @@ export function XmlImportDialog({
         <DialogHeader>
           <DialogTitle>Importação em Massa (XML)</DialogTitle>
           <DialogDescription>
-            Arraste arquivos ou clique para selecionar. Limite de 1000 arquivos
-            por lote.
+            Arraste arquivos ou clique para selecionar. O sistema validará a
+            consistência automaticamente.
           </DialogDescription>
         </DialogHeader>
 
@@ -223,7 +269,7 @@ export function XmlImportDialog({
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
               <div className="w-full max-w-md space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Processando...</span>
+                  <span>Processando e Validando...</span>
                   <span>
                     {processedCount} de {totalFiles}
                   </span>
@@ -231,7 +277,7 @@ export function XmlImportDialog({
                 <Progress value={progress} className="h-2" />
               </div>
               <p className="text-sm text-muted-foreground">
-                Por favor, aguarde enquanto processamos os arquivos.
+                Por favor, aguarde enquanto validamos as informações fiscais.
               </p>
             </div>
           ) : (
@@ -292,9 +338,9 @@ export function XmlImportDialog({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Número</TableHead>
-                      <TableHead>Tipo</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="text-center">Alertas</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -304,14 +350,41 @@ export function XmlImportDialog({
                         <TableCell className="font-mono text-xs">
                           {item.cteNumber || item.documentNumber || '-'}
                         </TableCell>
-                        <TableCell className="text-xs">
-                          {item.type === 'expense' ? 'Despesa' : 'Receita'}
-                        </TableCell>
                         <TableCell className="text-xs max-w-[200px] truncate">
                           {item.description}
                         </TableCell>
                         <TableCell className="text-right font-medium text-xs">
                           {formatCurrency(item.value)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {item.consistencyWarnings &&
+                          item.consistencyWarnings.length > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                                >
+                                  <AlertOctagon className="h-3 w-3" />
+                                  {item.consistencyWarnings.length}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <ul className="list-disc pl-4 text-xs">
+                                  {item.consistencyWarnings.map((w, idx) => (
+                                    <li key={idx}>{w}</li>
+                                  ))}
+                                </ul>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="bg-green-50 text-green-700 border-green-200"
+                            >
+                              OK
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Button

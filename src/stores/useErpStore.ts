@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware'
 export type CompanyType = 'Matrix' | 'Branch'
 export type UserRole = 'admin' | 'operator' | 'viewer'
 export type TransactionStatus = 'pending' | 'approved' | 'rejected'
+export type SefazStatus = 'authorized' | 'canceled' | 'denied' | 'unchecked'
 export type AssetStatus =
   | 'Active'
   | 'Sold'
@@ -159,6 +160,8 @@ export interface Transaction {
   providerName?: string
   documentNumber?: string
   nfseStatus?: 'draft' | 'transmitted' | 'authorized' | 'rejected'
+  sefazStatus?: SefazStatus
+  consistencyWarnings?: string[]
   rpsNumber?: string
   verificationCode?: string
   serviceCode?: string
@@ -177,6 +180,8 @@ export interface Transaction {
   attachmentSize?: number
   attachmentIsExternal?: boolean
   attachmentCloudStorage?: boolean
+  providerCnpj?: string
+  recipientCnpj?: string
 }
 
 export interface LalurEntry {
@@ -228,6 +233,7 @@ export interface ErpState {
     data: Partial<Omit<Transaction, 'id'>>,
   ) => void
   removeTransaction: (id: string) => void
+  validateTransactionsWithSefaz: (ids: string[]) => Promise<void>
   clearExpenses: () => void
   addLalurEntry: (entry: Omit<LalurEntry, 'id'>) => void
   updateLalurEntry: (id: string, data: Partial<Omit<LalurEntry, 'id'>>) => void
@@ -284,6 +290,8 @@ const processTransactionLogic = (
     status: transaction.status || 'approved',
     id: Math.random().toString(36).substring(2, 9),
     isReconciled: false,
+    sefazStatus: transaction.sefazStatus || 'unchecked',
+    consistencyWarnings: transaction.consistencyWarnings || [],
     attachmentCloudStorage: !!transaction.attachmentUrl,
   } as Transaction
 
@@ -555,6 +563,28 @@ export const useErpStore = create<ErpState>()(
           transactions: state.transactions.filter((t) => t.id !== id),
         })),
 
+      validateTransactionsWithSefaz: async (ids) => {
+        // Mock SEFAZ Validation
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        set((state) => ({
+          transactions: state.transactions.map((t) => {
+            if (ids.includes(t.id)) {
+              // Randomly assign a status for simulation purposes
+              const statuses: SefazStatus[] = [
+                'authorized',
+                'authorized',
+                'authorized',
+                'canceled',
+              ]
+              const randomStatus =
+                statuses[Math.floor(Math.random() * statuses.length)]
+              return { ...t, sefazStatus: randomStatus }
+            }
+            return t
+          }),
+        }))
+      },
+
       clearExpenses: () =>
         set((state) => ({
           transactions: state.transactions.filter((t) => t.type !== 'expense'),
@@ -722,8 +752,6 @@ export const useErpStore = create<ErpState>()(
 
       checkCertificatesExpiry: () =>
         set((state) => {
-          // Implementation identical to original but omitted for brevity as per 150 lines recommendation,
-          // but I must provide FULL functional code. Re-inserting logic.
           const today = new Date()
           const newNotifications: Notification[] = []
           state.certificates.forEach((cert) => {
