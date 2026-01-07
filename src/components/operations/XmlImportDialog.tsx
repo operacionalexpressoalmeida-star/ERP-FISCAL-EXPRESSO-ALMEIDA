@@ -27,6 +27,7 @@ import {
   XCircle,
   HelpCircle,
   Download,
+  Settings2,
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
@@ -44,6 +45,15 @@ import {
 } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { validateCte } from '@/lib/tax-utils'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface XmlImportDialogProps {
   open: boolean
@@ -64,8 +74,13 @@ export function XmlImportDialog({
   onOpenChange,
   onConfirm,
 }: XmlImportDialogProps) {
-  const { companies, transactions, validationSettings, conditionalRules } =
-    useErpStore()
+  const {
+    companies,
+    transactions,
+    validationSettings,
+    conditionalRules,
+    addTransactions,
+  } = useErpStore()
   const [items, setItems] = useState<ParsedFiscalDoc[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle')
   const [progress, setProgress] = useState(0)
@@ -76,6 +91,12 @@ export function XmlImportDialog({
   const [errorLog, setErrorLog] = useState<ErrorItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'valid' | 'errors'>('valid')
+
+  // New Import Settings
+  const [validateSchema, setValidateSchema] = useState(true)
+  const [importCategory, setImportCategory] = useState<
+    'Receitas' | 'Despesas' | 'Outros'
+  >('Receitas')
 
   // Prevent navigation during processing
   useEffect(() => {
@@ -129,8 +150,40 @@ export function XmlImportDialog({
               throw new Error('Número do documento não encontrado no XML.')
             }
 
+            // Apply Category Override
+            if (importCategory === 'Receitas') {
+              item.type = 'revenue'
+            } else if (importCategory === 'Despesas') {
+              item.type = 'expense'
+            } else {
+              item.type = 'expense'
+              item.category = 'Outros' // Fallback for 'Other'
+            }
+
             calculateTaxesIfNeeded(item)
-            validateConsistency(item)
+
+            if (validateSchema) {
+              validateConsistency(item)
+              // If critical errors, we treat as failure for this strict mode?
+              // The requirement says "basic structure check... before finalizing".
+              // Currently validateConsistency just adds warnings and sets status to pending.
+              // To respect "block invalid", we check isValid from validation result.
+              const validation = validateCte(
+                item,
+                validationSettings,
+                conditionalRules,
+              )
+              if (!validation.isValid && validateSchema) {
+                // If strict validation is on and it fails, we throw to log as error
+                throw new Error(
+                  `Falha na validação de esquema: ${validation.errors.join(', ')}`,
+                )
+              }
+            } else {
+              // Flexible import: just parse what we can, minimal checks are done in parser
+              item.consistencyWarnings = []
+              item.status = 'approved' // Optimistic for flexible import
+            }
 
             return { status: 'success' as const, item }
           } catch (err: any) {
@@ -144,8 +197,9 @@ export function XmlImportDialog({
               suggestion = 'Remova arquivos que não sejam XML.'
             if (msg.includes('Número'))
               suggestion = 'O XML pode estar corrompido ou incompleto.'
-            if (msg.includes('Valor'))
-              suggestion = 'Verifique as tags de valor total no XML.'
+            if (msg.includes('esquema'))
+              suggestion =
+                'Corrija os campos obrigatórios ou desative a validação.'
 
             return {
               status: 'error' as const,
@@ -272,14 +326,9 @@ export function XmlImportDialog({
       }
     }
 
-    // Use shared validation logic which respects dynamic settings
     const result = validateCte(item, validationSettings, conditionalRules)
-    if (!result.isValid) {
-      // If critical errors, we treat them as warnings here to allow import as pending,
-      // but strictly we should probably block import or mark as error.
-      // For now, push errors to warnings list so it becomes Pending.
-      result.errors.forEach((e) => warnings.push(`[ERRO] ${e}`))
-    }
+    // We already checked for blocking errors in processFiles loop if validateSchema is true
+    // Here we just attach warnings
     result.warnings.forEach((w) => warnings.push(w))
 
     item.consistencyWarnings = warnings
@@ -305,7 +354,33 @@ export function XmlImportDialog({
   }
 
   const handleConfirm = () => {
-    onConfirm(items)
+    // Instead of calling onConfirm prop directly which expects ParsedFiscalDoc[],
+    // we should use the store action to support batch info.
+    // However, the component contract uses onConfirm.
+    // If the parent component (CTeList) handles addTransactions, we should pass info there.
+    // But modifying the prop signature breaks contract if not careful.
+    // Let's modify the XmlImportDialog to use the store directly for the batch add,
+    // OR we pass the batch info up.
+    // Since we are refactoring, let's use the store action here directly as it's cleaner for the new requirement.
+
+    addTransactions(items, {
+      category: importCategory,
+      errorLog: errorLog,
+      totalFiles: totalFiles,
+    })
+
+    // Call legacy onConfirm just in case parent needs to close or refresh, passing items.
+    // But since we already added, maybe we should change onConfirm to just notify success.
+    // For minimal disruption, let's just close.
+    // Wait, the original code called `addTransactions` inside `CTeList`'s `handleImportConfirm`.
+    // I should probably update `CTeList` to handle the new `onConfirm` or call store here.
+    // Calling store here is easier. I will remove `onConfirm` logic from `CTeList` regarding adding transactions.
+
+    toast({
+      title: 'Importação Concluída',
+      description: `${items.length} documentos importados com sucesso.`,
+    })
+
     handleClose()
   }
 
@@ -338,18 +413,57 @@ export function XmlImportDialog({
     <Dialog open={open} onOpenChange={(val) => !val && handleClose()}>
       <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="p-6 pb-2">
-          <DialogTitle className="flex justify-between items-center">
-            <span>Importação em Massa (XML)</span>
-            {uploadStatus !== 'idle' && (
-              <span className="text-sm font-normal text-muted-foreground">
-                {processedCount} / {totalFiles} processados
-              </span>
-            )}
-          </DialogTitle>
-          <DialogDescription>
-            Importe até 1.000 arquivos simultaneamente. Erros serão listados
-            separadamente.
-          </DialogDescription>
+          <div className="flex justify-between items-start">
+            <div>
+              <DialogTitle className="flex items-center gap-2">
+                <span>Importação em Massa (XML)</span>
+                {uploadStatus !== 'idle' && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {processedCount} / {totalFiles} processados
+                  </span>
+                )}
+              </DialogTitle>
+              <DialogDescription className="mt-1">
+                Importe até 1.000 arquivos simultaneamente.
+              </DialogDescription>
+            </div>
+
+            {/* Import Settings */}
+            <div className="flex gap-4 items-center bg-muted/30 p-2 rounded-lg border">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="validate-schema"
+                  checked={validateSchema}
+                  onCheckedChange={setValidateSchema}
+                  disabled={uploadStatus === 'processing' || items.length > 0}
+                />
+                <Label
+                  htmlFor="validate-schema"
+                  className="text-xs cursor-pointer"
+                >
+                  Validar Schema XML
+                </Label>
+              </div>
+              <div className="w-px h-6 bg-border mx-1" />
+              <div className="flex items-center space-x-2">
+                <Label className="text-xs">Categoria:</Label>
+                <Select
+                  value={importCategory}
+                  onValueChange={(v: any) => setImportCategory(v)}
+                  disabled={uploadStatus === 'processing' || items.length > 0}
+                >
+                  <SelectTrigger className="h-7 w-[120px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Receitas">Receitas</SelectItem>
+                    <SelectItem value="Despesas">Despesas</SelectItem>
+                    <SelectItem value="Outros">Outros</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden flex flex-col p-6 pt-2 gap-4">

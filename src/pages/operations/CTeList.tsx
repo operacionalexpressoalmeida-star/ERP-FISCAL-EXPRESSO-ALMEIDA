@@ -38,6 +38,8 @@ import {
   History,
   CheckCheck,
   ShieldOff,
+  RefreshCw,
+  XCircle,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
@@ -78,6 +80,7 @@ import { CteDocumentsDialog } from '@/components/operations/CteDocumentsDialog'
 import { Input } from '@/components/ui/input'
 import { AuditLogDialog } from '@/components/operations/AuditLogDialog'
 import { BulkValidationResultDialog } from '@/components/operations/BulkValidationResultDialog'
+import { ImportDashboard } from '@/components/operations/ImportDashboard'
 
 const ITEMS_PER_PAGE = 10
 
@@ -85,7 +88,6 @@ export default function CTeList() {
   const {
     getFilteredTransactions,
     addTransaction,
-    addTransactions,
     updateTransaction,
     removeTransaction,
     validateTransactionsWithSefaz,
@@ -178,62 +180,9 @@ export default function CTeList() {
   )
 
   const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
-    let duplicateCount = 0
-    const existingKeys = new Set(
-      transactions.map((t) => t.accessKey || t.cteNumber),
-    )
-
-    const newTransactions: any[] = []
-
-    items.forEach((item) => {
-      const isDuplicate = item.accessKey
-        ? existingKeys.has(item.accessKey)
-        : existingKeys.has(item.cteNumber)
-
-      if (isDuplicate) {
-        duplicateCount++
-        return
-      }
-
-      let finalItem = { ...item }
-      if (
-        finalItem.origin &&
-        finalItem.destination &&
-        finalItem.value &&
-        finalItem.icmsValue === 0
-      ) {
-        const taxes = calculateCteTaxes(
-          finalItem.value,
-          finalItem.origin,
-          finalItem.destination,
-        )
-        finalItem = { ...finalItem, ...taxes }
-      }
-
-      newTransactions.push({
-        ...finalItem,
-        type: 'revenue', // Force revenue classification
-        companyId:
-          selectedCompanyId === 'consolidated' ? 'c1' : selectedCompanyId,
-        status: finalItem.status || 'approved',
-      })
-    })
-
-    if (newTransactions.length > 0) {
-      addTransactions(newTransactions)
-      toast({
-        title: 'Importação Concluída',
-        description: `${newTransactions.length} documentos importados com sucesso.`,
-      })
-    }
-
-    if (duplicateCount > 0) {
-      toast({
-        title: 'Duplicidades Ignoradas',
-        description: `${duplicateCount} documentos já existiam e não foram importados.`,
-        variant: 'destructive', // Warning variant not available, using destructive for attention
-      })
-    }
+    // Legacy support: XML import dialog now handles adding to store directly to support batch info.
+    // This callback is kept empty or for future UI updates if needed.
+    // The dialog manages toast and state update.
   }
 
   const handleManualSave = (data: CteFormData) => {
@@ -428,6 +377,45 @@ export default function CTeList() {
     }
   }
 
+  const getTmsBadge = (status?: string) => {
+    switch (status) {
+      case 'synced':
+        return (
+          <Badge
+            variant="outline"
+            className="bg-blue-50 text-blue-700 border-blue-200 gap-1"
+          >
+            <RefreshCw className="h-3 w-3" /> Sincronizado TMS
+          </Badge>
+        )
+      case 'pending':
+        return (
+          <Badge
+            variant="outline"
+            className="text-muted-foreground gap-1 border-dashed"
+          >
+            <Loader2 className="h-3 w-3 animate-spin" /> Sync...
+          </Badge>
+        )
+      case 'error':
+        return (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge
+                variant="outline"
+                className="text-rose-600 gap-1 border-rose-200"
+              >
+                <XCircle className="h-3 w-3" /> Erro TMS
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>Falha na sincronização</TooltipContent>
+          </Tooltip>
+        )
+      default:
+        return null
+    }
+  }
+
   const handleSetStandard = () => {
     if (!cteToMakeStandard) return
 
@@ -516,19 +504,19 @@ export default function CTeList() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 bg-background p-4 border rounded-lg shadow-sm">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por número, chave de acesso ou descrição..."
-            className="pl-8"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
-
       <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+        <div className="flex items-center gap-4 bg-background p-4 border rounded-lg shadow-sm mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por número, chave de acesso ou descrição..."
+              className="pl-8"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
         <TabsList>
           <TabsTrigger value="all">Todos</TabsTrigger>
           <TabsTrigger value="pending">
@@ -551,275 +539,276 @@ export default function CTeList() {
             )}
           </TabsTrigger>
           <TabsTrigger value="processed">Processados</TabsTrigger>
+          <TabsTrigger value="import-dashboard">
+            Dashboard de Importação
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value={selectedTab} className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {selectedTab === 'pending'
-                  ? 'Pendências para Regularização'
-                  : 'Histórico de Emissões'}
-              </CardTitle>
-              <CardDescription>
-                {selectedTab === 'pending'
-                  ? 'Itens que requerem atenção manual ou validação.'
-                  : 'Documentos emitidos, status fiscal e tributos.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[40px]">
-                      <Checkbox
-                        checked={
-                          currentData.length > 0 &&
-                          selectedItems.length === currentData.length
-                        }
-                        onCheckedChange={handleSelectAll}
-                      />
-                    </TableHead>
-                    <TableHead className="w-[40px]"></TableHead>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Número</TableHead>
-                    <TableHead>Origem / Destino</TableHead>
-                    <TableHead>Frete (ID/Status)</TableHead>
-                    <TableHead>Autenticidade SEFAZ</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="text-center">
-                      Status Interno
-                    </TableHead>
-                    <TableHead className="w-[150px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {currentData.map((t) => {
-                    const alert = getAlertStatus(t)
-                    const hasWarnings =
-                      t.consistencyWarnings && t.consistencyWarnings.length > 0
-                    const AlertIcon = alert?.icon
-                    const isStandard = t.id === standardCteId
+        <TabsContent value="import-dashboard" className="mt-4">
+          <ImportDashboard />
+        </TabsContent>
 
-                    return (
-                      <TableRow
-                        key={t.id}
-                        className={isStandard ? 'bg-blue-50/50' : ''}
-                      >
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedItems.includes(t.id)}
-                            onCheckedChange={() => toggleSelect(t.id)}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {(alert || hasWarnings) && !t.validationBypassed && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 hover:bg-transparent"
-                                >
-                                  {hasWarnings ? (
-                                    <AlertOctagon className="h-4 w-4 text-amber-600" />
-                                  ) : (
-                                    AlertIcon && (
-                                      <AlertIcon
-                                        className={`h-4 w-4 ${alert?.class}`}
-                                      />
-                                    )
-                                  )}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {hasWarnings ? (
-                                  <ul className="list-disc pl-4 text-xs">
-                                    {t.consistencyWarnings?.map((w, i) => (
-                                      <li key={i}>{w}</li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p>{alert?.message}</p>
+        <TabsContent value={selectedTab} className="mt-4">
+          {selectedTab !== 'import-dashboard' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {selectedTab === 'pending'
+                    ? 'Pendências para Regularização'
+                    : 'Histórico de Emissões'}
+                </CardTitle>
+                <CardDescription>
+                  {selectedTab === 'pending'
+                    ? 'Itens que requerem atenção manual ou validação.'
+                    : 'Documentos emitidos, status fiscal e tributos.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[40px]">
+                        <Checkbox
+                          checked={
+                            currentData.length > 0 &&
+                            selectedItems.length === currentData.length
+                          }
+                          onCheckedChange={handleSelectAll}
+                        />
+                      </TableHead>
+                      <TableHead className="w-[40px]"></TableHead>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Número</TableHead>
+                      <TableHead>Origem / Destino</TableHead>
+                      <TableHead>Autenticidade SEFAZ</TableHead>
+                      <TableHead>Integração TMS</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="text-center">
+                        Status Interno
+                      </TableHead>
+                      <TableHead className="w-[150px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {currentData.map((t) => {
+                      const alert = getAlertStatus(t)
+                      const hasWarnings =
+                        t.consistencyWarnings &&
+                        t.consistencyWarnings.length > 0
+                      const AlertIcon = alert?.icon
+                      const isStandard = t.id === standardCteId
+
+                      return (
+                        <TableRow
+                          key={t.id}
+                          className={isStandard ? 'bg-blue-50/50' : ''}
+                        >
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedItems.includes(t.id)}
+                              onCheckedChange={() => toggleSelect(t.id)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {(alert || hasWarnings) &&
+                              !t.validationBypassed && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-transparent"
+                                    >
+                                      {hasWarnings ? (
+                                        <AlertOctagon className="h-4 w-4 text-amber-600" />
+                                      ) : (
+                                        AlertIcon && (
+                                          <AlertIcon
+                                            className={`h-4 w-4 ${alert?.class}`}
+                                          />
+                                        )
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {hasWarnings ? (
+                                      <ul className="list-disc pl-4 text-xs">
+                                        {t.consistencyWarnings?.map((w, i) => (
+                                          <li key={i}>{w}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>{alert?.message}</p>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(t.date).toLocaleDateString('pt-BR')}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1 font-mono">
+                              <div className="flex items-center gap-1">
+                                <FileText className="h-3 w-3 text-muted-foreground" />
+                                <span>{t.cteNumber}</span>
+                                {isStandard && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-4 px-1 text-[10px] bg-blue-100 text-blue-700 hover:bg-blue-200 ml-1"
+                                  >
+                                    Padrão
+                                  </Badge>
                                 )}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(t.date).toLocaleDateString('pt-BR')}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1 font-mono">
-                            <div className="flex items-center gap-1">
-                              <FileText className="h-3 w-3 text-muted-foreground" />
-                              <span>{t.cteNumber}</span>
-                              {isStandard && (
-                                <Badge
-                                  variant="secondary"
-                                  className="h-4 px-1 text-[10px] bg-blue-100 text-blue-700 hover:bg-blue-200 ml-1"
+                              </div>
+                              {t.accessKey && (
+                                <span
+                                  className="text-[10px] text-muted-foreground truncate max-w-[120px]"
+                                  title={t.accessKey}
                                 >
-                                  Padrão
-                                </Badge>
+                                  {t.accessKey}
+                                </span>
                               )}
                             </div>
-                            {t.accessKey && (
-                              <span
-                                className="text-[10px] text-muted-foreground truncate max-w-[120px]"
-                                title={t.accessKey}
-                              >
-                                {t.accessKey}
-                              </span>
+                          </TableCell>
+                          <TableCell>
+                            {t.origin && t.destination ? (
+                              <div className="flex items-center gap-1 text-sm">
+                                <span className="font-semibold">
+                                  {t.origin}
+                                </span>
+                                <span className="text-muted-foreground">→</span>
+                                <span className="font-semibold">
+                                  {t.destination}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
                             )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {t.origin && t.destination ? (
-                            <div className="flex items-center gap-1 text-sm">
-                              <span className="font-semibold">{t.origin}</span>
-                              <span className="text-muted-foreground">→</span>
-                              <span className="font-semibold">
-                                {t.destination}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {t.freightId ? (
-                            <div className="flex flex-col text-xs">
-                              <span className="font-medium">{t.freightId}</span>
-                              <span className="text-muted-foreground">
-                                {t.freightStatus || 'Unknown'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground italic">
-                              Não vinculado
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>{getSefazBadge(t.sefazStatus)}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-600">
-                          {formatCurrency(t.value)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            {t.validationBypassed && (
+                          </TableCell>
+                          <TableCell>{getSefazBadge(t.sefazStatus)}</TableCell>
+                          <TableCell>{getTmsBadge(t.tmsSyncStatus)}</TableCell>
+                          <TableCell className="text-right font-bold text-emerald-600">
+                            {formatCurrency(t.value)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              {t.validationBypassed && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                                >
+                                  <ShieldOff className="h-3 w-3" /> Manual
+                                </Badge>
+                              )}
                               <Badge
                                 variant="outline"
-                                className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                                className={
+                                  t.status === 'approved'
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                }
                               >
-                                <ShieldOff className="h-3 w-3" /> Manual
+                                {t.status === 'approved'
+                                  ? 'Autorizado'
+                                  : 'Pendente'}
                               </Badge>
-                            )}
-                            <Badge
-                              variant="outline"
-                              className={
-                                t.status === 'approved'
-                                  ? 'bg-green-50 text-green-700 border-green-200'
-                                  : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                              }
-                            >
-                              {t.status === 'approved'
-                                ? 'Autorizado'
-                                : 'Pendente'}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-end gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-end gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      isStandard
+                                        ? handleUnsetStandard(t.id)
+                                        : setCteToMakeStandard(t)
+                                    }
+                                    className={
+                                      isStandard
+                                        ? 'text-yellow-500 hover:text-yellow-600 hover:bg-yellow-50'
+                                        : 'text-muted-foreground hover:text-yellow-500'
+                                    }
+                                  >
+                                    <Star
+                                      className={`h-4 w-4 ${isStandard ? 'fill-current' : ''}`}
+                                    />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {isStandard
+                                    ? 'Remover Padrão'
+                                    : 'Definir como Padrão'}
+                                </TooltipContent>
+                              </Tooltip>
+
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openDocumentsDialog(t)}
+                                title="Documentos"
+                              >
+                                <Paperclip className="h-4 w-4 text-blue-600" />
+                              </Button>
+                              {t.status === 'pending' &&
+                              userRole === 'admin' ? (
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() =>
-                                    isStandard
-                                      ? handleUnsetStandard(t.id)
-                                      : setCteToMakeStandard(t)
-                                  }
-                                  className={
-                                    isStandard
-                                      ? 'text-yellow-500 hover:text-yellow-600 hover:bg-yellow-50'
-                                      : 'text-muted-foreground hover:text-yellow-500'
-                                  }
+                                  onClick={() => openEditDialog(t)}
+                                  title="Regularizar / Editar"
+                                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                                 >
-                                  <Star
-                                    className={`h-4 w-4 ${isStandard ? 'fill-current' : ''}`}
-                                  />
+                                  <CheckCircle className="h-4 w-4" />
                                 </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {isStandard
-                                  ? 'Remover Padrão'
-                                  : 'Definir como Padrão'}
-                              </TooltipContent>
-                            </Tooltip>
-
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openDocumentsDialog(t)}
-                              title="Documentos"
-                            >
-                              <Paperclip className="h-4 w-4 text-blue-600" />
-                            </Button>
-                            {t.status === 'pending' && userRole === 'admin' ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEditDialog(t)}
-                                title="Regularizar / Editar"
-                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEditDialog(t)}
-                                title="Editar"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {userRole === 'admin' && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => setTransactionToDelete(t)}
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => openEditDialog(t)}
+                                  title="Editar"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {userRole === 'admin' && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setTransactionToDelete(t)}
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                    {currentData.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={10}
+                          className="text-center h-24 text-muted-foreground"
+                        >
+                          Nenhum registro encontrado nesta visão.
                         </TableCell>
                       </TableRow>
-                    )
-                  })}
-                  {currentData.length === 0 && (
-                    <TableRow>
-                      <TableCell
-                        colSpan={10}
-                        className="text-center h-24 text-muted-foreground"
-                      >
-                        Nenhum registro encontrado nesta visão.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              <PaginationControls
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
-            </CardContent>
-          </Card>
+                    )}
+                  </TableBody>
+                </Table>
+                <PaginationControls
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 

@@ -117,7 +117,7 @@ export interface Certificate {
 
 export interface IntegrationLog {
   id: string
-  type: 'SEFAZ' | 'CIOT' | 'TRACKING'
+  type: 'SEFAZ' | 'CIOT' | 'TRACKING' | 'TMS'
   action: string
   status: 'success' | 'error' | 'pending'
   message: string
@@ -173,6 +173,18 @@ export interface StandardCteLog {
   userName: string
   previousCteId: string | null
   newCteId: string | null
+}
+
+export interface ImportBatch {
+  id: string
+  date: string
+  user: string
+  totalFiles: number
+  successCount: number
+  errorCount: number
+  category: 'Receitas' | 'Despesas' | 'Outros'
+  status: 'Success' | 'Partial' | 'Error'
+  errorLog?: { fileName: string; error: string }[]
 }
 
 export interface Transaction {
@@ -231,6 +243,8 @@ export interface Transaction {
   cteType?: 'Normal' | 'Complementary' | 'Substitution'
   originalCteKey?: string
   validationBypassed?: boolean
+  tmsSyncStatus?: 'synced' | 'pending' | 'error'
+  importBatchId?: string
 }
 
 export interface LalurEntry {
@@ -268,6 +282,7 @@ export interface ErpState {
   categorizationRules: CategorizationRule[]
   conditionalRules: ConditionalRule[]
   validationSettings: ValidationSettings
+  importHistory: ImportBatch[]
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
   standardCteId: string | null
@@ -290,6 +305,11 @@ export interface ErpState {
     transactions: (Omit<Transaction, 'id' | 'status'> & {
       status?: TransactionStatus
     })[],
+    batchInfo?: {
+      category: 'Receitas' | 'Despesas' | 'Outros'
+      errorLog?: { fileName: string; error: string }[]
+      totalFiles: number
+    },
   ) => void
   updateTransaction: (
     id: string,
@@ -367,6 +387,7 @@ const processTransactionLogic = (
     documents: transaction.documents || [],
     pendencyHistory: [],
     cteType: transaction.cteType || 'Normal',
+    tmsSyncStatus: transaction.type === 'revenue' ? 'pending' : undefined,
   } as Transaction
 
   // Apply Categorization Rules
@@ -477,6 +498,7 @@ export const useErpStore = create<ErpState>()(
       integrationLogs: [],
       categorizationRules: [],
       conditionalRules: [],
+      importHistory: [],
       validationSettings: {
         blockInvalidCfop: true,
         blockInvalidStates: true,
@@ -581,14 +603,17 @@ export const useErpStore = create<ErpState>()(
           }
         }),
 
-      addTransactions: (transactions) =>
+      addTransactions: (transactions, batchInfo) =>
         set((state) => {
           let currentAssets = [...state.assets]
           const newTxs: Transaction[] = []
+          const batchId = batchInfo
+            ? Math.random().toString(36).substring(2, 9)
+            : undefined
 
           transactions.forEach((tx) => {
             const result = processTransactionLogic(
-              tx,
+              { ...tx, importBatchId: batchId },
               currentAssets,
               get().applyCategorizationRules,
             )
@@ -605,10 +630,70 @@ export const useErpStore = create<ErpState>()(
             read: false,
           }
 
+          let newHistory = state.importHistory
+          if (batchInfo && batchId) {
+            const successCount = newTxs.length
+            const errorCount = batchInfo.errorLog?.length || 0
+            const total = batchInfo.totalFiles
+            const status =
+              errorCount === 0
+                ? 'Success'
+                : successCount === 0
+                  ? 'Error'
+                  : 'Partial'
+
+            const batch: ImportBatch = {
+              id: batchId,
+              date: new Date().toISOString(),
+              user: state.currentUser?.name || 'Sistema',
+              category: batchInfo.category,
+              totalFiles: total,
+              successCount,
+              errorCount,
+              status,
+              errorLog: batchInfo.errorLog,
+            }
+            newHistory = [batch, ...state.importHistory]
+          }
+
+          // Trigger Mock TMS Sync for Revenue items
+          const revenueIds = newTxs
+            .filter((t) => t.type === 'revenue')
+            .map((t) => t.id)
+          if (revenueIds.length > 0) {
+            setTimeout(() => {
+              set((current) => ({
+                transactions: current.transactions.map((t) => {
+                  if (revenueIds.includes(t.id)) {
+                    // Random success/fail for TMS
+                    const success = Math.random() > 0.1
+                    return {
+                      ...t,
+                      tmsSyncStatus: success ? 'synced' : 'error',
+                    }
+                  }
+                  return t
+                }),
+                integrationLogs: [
+                  {
+                    id: Math.random().toString(36).substring(2, 9),
+                    type: 'TMS',
+                    action: 'Sincronização Automática',
+                    status: 'success',
+                    message: `Sincronizados ${revenueIds.length} CT-es com o sistema TMS.`,
+                    timestamp: new Date().toISOString(),
+                  },
+                  ...current.integrationLogs,
+                ].slice(0, 100),
+              }))
+            }, 3000)
+          }
+
           return {
             transactions: [...state.transactions, ...newTxs],
             assets: currentAssets,
             notifications: [notification, ...state.notifications],
+            importHistory: newHistory,
           }
         }),
 
