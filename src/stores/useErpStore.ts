@@ -175,6 +175,8 @@ export interface Transaction {
   attachmentType?: string
   attachmentName?: string
   attachmentSize?: number
+  attachmentIsExternal?: boolean
+  attachmentCloudStorage?: boolean
 }
 
 export interface LalurEntry {
@@ -441,6 +443,8 @@ export const useErpStore = create<ErpState>()(
             status: transaction.status || 'approved',
             id: Math.random().toString(36).substring(2, 9),
             isReconciled: false,
+            // Default new attachments to "Cloud Storage" simulation if URL is present
+            attachmentCloudStorage: !!transaction.attachmentUrl,
           }
 
           // Apply Categorization Rules

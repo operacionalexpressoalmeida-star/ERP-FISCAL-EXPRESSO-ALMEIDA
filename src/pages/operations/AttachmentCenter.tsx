@@ -1,4 +1,4 @@
-import { useErpStore, Transaction } from '@/stores/useErpStore'
+import { useErpStore } from '@/stores/useErpStore'
 import {
   Card,
   CardContent,
@@ -29,12 +29,20 @@ import {
   Image as ImageIcon,
   Search,
   Download,
+  Link as LinkIcon,
+  Cloud,
 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { formatCurrency, formatFileSize } from '@/lib/utils'
 import { PaginationControls } from '@/components/PaginationControls'
 import { FilePreviewDialog } from '@/components/operations/FilePreviewDialog'
 import { Badge } from '@/components/ui/badge'
+import { BulkExportDialog } from '@/components/operations/BulkExportDialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const ITEMS_PER_PAGE = 10
 
@@ -48,6 +56,7 @@ export default function AttachmentCenter() {
     name: string
     type: string
   } | null>(null)
+  const [isExportOpen, setIsExportOpen] = useState(false)
 
   // Get transactions with attachments
   const attachments = useMemo(() => {
@@ -62,6 +71,8 @@ export default function AttachmentCenter() {
         name: t.attachmentName || `Anexo - ${t.description}`,
         type: t.attachmentType || 'application/pdf',
         size: t.attachmentSize || 0,
+        isExternal: t.attachmentIsExternal,
+        cloudStorage: t.attachmentCloudStorage,
       }))
       .filter((file) => {
         const matchesSearch = file.name
@@ -73,6 +84,8 @@ export default function AttachmentCenter() {
           matchesType = file.type.startsWith('image/')
         } else if (typeFilter === 'pdf') {
           matchesType = file.type === 'application/pdf'
+        } else if (typeFilter === 'link') {
+          matchesType = !!file.isExternal
         }
 
         return matchesSearch && matchesType
@@ -87,20 +100,31 @@ export default function AttachmentCenter() {
   )
 
   const handlePreview = (file: (typeof attachments)[0]) => {
-    setPreviewFile({
-      url: file.url,
-      name: file.name,
-      type: file.type,
-    })
+    if (file.isExternal) {
+      window.open(file.url, '_blank')
+    } else {
+      setPreviewFile({
+        url: file.url,
+        name: file.name,
+        type: file.type,
+      })
+    }
   }
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Central de Anexos</h1>
-        <p className="text-muted-foreground">
-          Gestão centralizada de documentos e comprovantes fiscais.
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Central de Anexos
+          </h1>
+          <p className="text-muted-foreground">
+            Gestão centralizada de documentos e comprovantes fiscais.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => setIsExportOpen(true)}>
+          <Download className="mr-2 h-4 w-4" /> Exportar em Massa
+        </Button>
       </div>
 
       <Card>
@@ -130,6 +154,7 @@ export default function AttachmentCenter() {
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pdf">PDF</SelectItem>
                   <SelectItem value="image">Imagens</SelectItem>
+                  <SelectItem value="link">Links Externos</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -151,7 +176,11 @@ export default function AttachmentCenter() {
               {currentData.map((file) => (
                 <TableRow key={file.id}>
                   <TableCell>
-                    {file.type.startsWith('image/') ? (
+                    {file.isExternal ? (
+                      <div className="h-8 w-8 rounded bg-gray-100 flex items-center justify-center text-gray-600">
+                        <LinkIcon className="h-4 w-4" />
+                      </div>
+                    ) : file.type.startsWith('image/') ? (
                       <div className="h-8 w-8 rounded bg-blue-100 flex items-center justify-center text-blue-600">
                         <ImageIcon className="h-4 w-4" />
                       </div>
@@ -163,14 +192,29 @@ export default function AttachmentCenter() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span
-                        className="font-medium truncate max-w-[200px]"
-                        title={file.name}
-                      >
-                        {file.name}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="font-medium truncate max-w-[200px]"
+                          title={file.name}
+                        >
+                          {file.name}
+                        </span>
+                        {file.cloudStorage && (
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Badge
+                                variant="outline"
+                                className="h-5 px-1 bg-sky-50 text-sky-700 border-sky-200"
+                              >
+                                <Cloud className="h-3 w-3" />
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>Armazenado na Nuvem</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground">
-                        {file.type}
+                        {file.isExternal ? 'Link Externo' : file.type}
                       </span>
                     </div>
                   </TableCell>
@@ -192,7 +236,7 @@ export default function AttachmentCenter() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="font-mono text-xs">
-                      {formatFileSize(file.size)}
+                      {file.isExternal ? 'N/A' : formatFileSize(file.size)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
@@ -203,18 +247,24 @@ export default function AttachmentCenter() {
                         onClick={() => handlePreview(file)}
                         title="Visualizar"
                       >
-                        <Eye className="h-4 w-4" />
+                        {file.isExternal ? (
+                          <LinkIcon className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        asChild
-                        title="Baixar"
-                      >
-                        <a href={file.url} download={file.name}>
-                          <Download className="h-4 w-4" />
-                        </a>
-                      </Button>
+                      {!file.isExternal && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          asChild
+                          title="Baixar"
+                        >
+                          <a href={file.url} download={file.name}>
+                            <Download className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -239,6 +289,8 @@ export default function AttachmentCenter() {
           />
         </CardContent>
       </Card>
+
+      <BulkExportDialog open={isExportOpen} onOpenChange={setIsExportOpen} />
 
       <FilePreviewDialog
         isOpen={!!previewFile}

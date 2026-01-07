@@ -36,6 +36,8 @@ import {
   Paperclip,
   Download,
   Eye,
+  Camera,
+  UploadCloud,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -112,6 +114,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { FilePreviewDialog } from '@/components/operations/FilePreviewDialog'
+import { DocumentScanner } from '@/components/operations/DocumentScanner'
 
 const expenseSchema = z.object({
   companyId: z.string().min(1, 'Selecione a empresa'),
@@ -129,7 +132,10 @@ const expenseSchema = z.object({
   fuelType: z.string().optional(),
   fuelQuantity: z.coerce.number().optional(),
   odometer: z.coerce.number().optional(),
-  attachment: z.any().optional(), // File input handler
+  // Attachment fields
+  attachmentType: z.enum(['file', 'link']).default('file'),
+  attachmentUrl: z.string().optional(),
+  attachmentFile: z.any().optional(),
 })
 
 const ITEMS_PER_PAGE = 10
@@ -173,6 +179,7 @@ export default function ExpenseList() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isXmlImportOpen, setIsXmlImportOpen] = useState(false)
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [selectedTransaction, setSelectedTransaction] =
@@ -201,11 +208,13 @@ export default function ExpenseList() {
       hasCreditIcms: false,
       contractId: 'no_contract',
       category: 'Other',
+      attachmentType: 'file',
     },
   })
 
   // Watch category to conditionally show fuel fields
   const watchedCategory = form.watch('category')
+  const watchedAttachmentType = form.watch('attachmentType')
 
   useEffect(() => {
     if (selectedTransaction) {
@@ -224,7 +233,12 @@ export default function ExpenseList() {
         fuelType: selectedTransaction.fuelType || '',
         fuelQuantity: selectedTransaction.fuelQuantity || 0,
         odometer: selectedTransaction.odometer || 0,
-        attachment: undefined,
+        attachmentType: selectedTransaction.attachmentIsExternal
+          ? 'link'
+          : 'file',
+        attachmentUrl: selectedTransaction.attachmentIsExternal
+          ? selectedTransaction.attachmentUrl
+          : '',
       })
     } else {
       form.reset({
@@ -243,10 +257,19 @@ export default function ExpenseList() {
         fuelType: '',
         fuelQuantity: 0,
         odometer: 0,
-        attachment: undefined,
+        attachmentType: 'file',
+        attachmentUrl: '',
       })
     }
   }, [selectedTransaction, form, selectedCompanyId])
+
+  const handleScanCapture = async (file: File) => {
+    form.setValue('attachmentFile', [file])
+    toast({
+      title: 'Documento Escaneado',
+      description: 'Imagem capturada com sucesso.',
+    })
+  }
 
   async function onSubmit(values: z.infer<typeof expenseSchema>) {
     const pisValue = values.hasCreditPisCofins ? values.value * 0.0165 : 0
@@ -262,10 +285,29 @@ export default function ExpenseList() {
     let attachmentType = selectedTransaction?.attachmentType
     let attachmentName = selectedTransaction?.attachmentName
     let attachmentSize = selectedTransaction?.attachmentSize
+    let attachmentIsExternal = selectedTransaction?.attachmentIsExternal
 
-    if (values.attachment && values.attachment.length > 0) {
+    if (values.attachmentType === 'link' && values.attachmentUrl) {
+      if (!values.attachmentUrl.startsWith('http')) {
+        toast({
+          title: 'URL Inválida',
+          description: 'O link deve começar com http:// ou https://',
+          variant: 'destructive',
+        })
+        return
+      }
+      attachmentUrl = values.attachmentUrl
+      attachmentType = 'link'
+      attachmentName = 'Link Externo'
+      attachmentSize = 0
+      attachmentIsExternal = true
+    } else if (
+      values.attachmentType === 'file' &&
+      values.attachmentFile &&
+      values.attachmentFile.length > 0
+    ) {
       try {
-        const file = values.attachment[0]
+        const file = values.attachmentFile[0]
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png']
 
         if (!allowedTypes.includes(file.type)) {
@@ -281,6 +323,7 @@ export default function ExpenseList() {
         attachmentType = file.type
         attachmentName = file.name
         attachmentSize = file.size
+        attachmentIsExternal = false
       } catch (error) {
         toast({
           title: 'Erro no Upload',
@@ -289,38 +332,37 @@ export default function ExpenseList() {
         })
         return
       }
+    } else if (values.attachmentType === 'file' && !selectedTransaction) {
+      // If creating new and file selected but empty, do nothing
+      attachmentUrl = undefined
+    }
+
+    // Prepare Base Object
+    const txData = {
+      ...values,
+      type: 'expense' as const,
+      pisValue,
+      cofinsValue,
+      icmsValue,
+      contractId,
+      attachmentUrl,
+      attachmentType,
+      attachmentName,
+      attachmentSize,
+      attachmentIsExternal,
+      attachmentCloudStorage: !!attachmentUrl, // Simulate cloud storage
     }
 
     if (selectedTransaction) {
-      updateTransaction(selectedTransaction.id, {
-        ...values,
-        type: 'expense',
-        pisValue,
-        cofinsValue,
-        icmsValue,
-        contractId,
-        attachmentUrl,
-        attachmentType,
-        attachmentName,
-        attachmentSize,
-      })
+      updateTransaction(selectedTransaction.id, txData)
       toast({
         title: 'Despesa Atualizada',
         description: 'Registro alterado com sucesso.',
       })
     } else {
       addTransaction({
-        ...values,
-        type: 'expense',
+        ...txData,
         status: 'approved', // Manual entry is approved
-        pisValue,
-        cofinsValue,
-        icmsValue,
-        contractId,
-        attachmentUrl,
-        attachmentType,
-        attachmentName,
-        attachmentSize,
       })
       toast({
         title: 'Despesa Lançada',
@@ -543,7 +585,9 @@ export default function ExpenseList() {
   }
 
   const handlePreviewAttachment = (t: Transaction) => {
-    if (t.attachmentUrl) {
+    if (t.attachmentIsExternal && t.attachmentUrl) {
+      window.open(t.attachmentUrl, '_blank')
+    } else if (t.attachmentUrl) {
       setPreviewFile({
         url: t.attachmentUrl,
         name: t.attachmentName || `Anexo - ${t.description}`,
@@ -637,6 +681,12 @@ export default function ExpenseList() {
         onConfirm={handleXmlConfirm}
       />
 
+      <DocumentScanner
+        open={isScannerOpen}
+        onOpenChange={setIsScannerOpen}
+        onCapture={handleScanCapture}
+      />
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full md:w-[400px] grid-cols-2">
           <TabsTrigger value="list">Lista de Despesas</TabsTrigger>
@@ -720,7 +770,14 @@ export default function ExpenseList() {
                                 className="h-auto p-0 text-xs text-blue-600 hover:underline flex items-center gap-1"
                                 onClick={() => handlePreviewAttachment(t)}
                               >
-                                <Paperclip className="h-3 w-3" /> Comprovante
+                                {t.attachmentIsExternal ? (
+                                  <LinkIcon className="h-3 w-3" />
+                                ) : (
+                                  <Paperclip className="h-3 w-3" />
+                                )}
+                                {t.attachmentIsExternal
+                                  ? 'Link Externo'
+                                  : 'Comprovante'}
                               </Button>
                             </div>
                           ) : (
@@ -1149,46 +1206,134 @@ export default function ExpenseList() {
               />
 
               {/* Attachment Field */}
-              <FormField
-                control={form.control}
-                name="attachment"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Anexar Comprovante (PDF, JPG, PNG)</FormLabel>
-                    <FormControl>
-                      <div className="flex flex-col gap-2">
-                        <Input
-                          type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.files ? e.target.files : null,
-                            )
+              <div className="p-4 border rounded-md bg-muted/10 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-medium text-sm flex items-center gap-2">
+                    <UploadCloud className="h-4 w-4" /> Comprovante
+                  </h4>
+                  <FormField
+                    control={form.control}
+                    name="attachmentType"
+                    render={({ field }) => (
+                      <div className="flex bg-muted rounded-lg p-1 gap-1">
+                        <Button
+                          type="button"
+                          variant={field.value === 'file' ? 'white' : 'ghost'}
+                          size="sm"
+                          className={
+                            field.value === 'file' ? 'bg-background shadow' : ''
                           }
-                        />
-                        {selectedTransaction?.attachmentUrl && (
-                          <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <CheckCircle className="h-3 w-3 text-green-500" />
-                            Arquivo atual anexado:{' '}
-                            {selectedTransaction.attachmentName || 'Anexo'}
-                            <Button
-                              variant="link"
-                              className="h-auto p-0 text-xs text-blue-600 hover:underline"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                handlePreviewAttachment(selectedTransaction)
-                              }}
-                            >
-                              Visualizar
-                            </Button>
-                          </div>
-                        )}
+                          onClick={() => field.onChange('file')}
+                        >
+                          Arquivo
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={field.value === 'link' ? 'white' : 'ghost'}
+                          size="sm"
+                          className={
+                            field.value === 'link' ? 'bg-background shadow' : ''
+                          }
+                          onClick={() => field.onChange('link')}
+                        >
+                          Link
+                        </Button>
                       </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                    )}
+                  />
+                </div>
+
+                {watchedAttachmentType === 'link' ? (
+                  <FormField
+                    control={form.control}
+                    name="attachmentUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Link Externo (URL)</FormLabel>
+                        <FormControl>
+                          <div className="flex gap-2">
+                            <Input
+                              {...field}
+                              placeholder="https://exemplo.com/fatura"
+                            />
+                            {field.value && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() =>
+                                  window.open(field.value, '_blank')
+                                }
+                              >
+                                <LinkIcon className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="attachmentFile"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Upload ou Câmera</FormLabel>
+                          <FormControl>
+                            <div className="flex flex-col gap-3">
+                              <div className="flex gap-2">
+                                <Input
+                                  type="file"
+                                  accept=".pdf,.jpg,.jpeg,.png"
+                                  className="flex-1"
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.files ? e.target.files : null,
+                                    )
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() => setIsScannerOpen(true)}
+                                >
+                                  <Camera className="mr-2 h-4 w-4" />
+                                  Scan
+                                </Button>
+                              </div>
+                              {selectedTransaction?.attachmentUrl &&
+                                !selectedTransaction.attachmentIsExternal && (
+                                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                                    <CheckCircle className="h-3 w-3 text-green-500" />
+                                    Arquivo atual:
+                                    {selectedTransaction.attachmentName ||
+                                      'Anexo'}
+                                    <Button
+                                      variant="link"
+                                      className="h-auto p-0 text-xs text-blue-600 hover:underline"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        handlePreviewAttachment(
+                                          selectedTransaction,
+                                        )
+                                      }}
+                                    >
+                                      Visualizar
+                                    </Button>
+                                  </div>
+                                )}
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 )}
-              />
+              </div>
 
               <div className="grid grid-cols-3 gap-4 pt-2">
                 <FormField
