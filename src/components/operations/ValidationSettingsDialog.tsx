@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { useErpStore } from '@/stores/useErpStore'
+import { useErpStore, ValidationSettings } from '@/stores/useErpStore'
 import { useState, useEffect } from 'react'
 import { toast } from '@/hooks/use-toast'
 import { ShieldOff, Tags } from 'lucide-react'
@@ -26,15 +26,36 @@ interface ValidationSettingsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+// Default values to prevent crashes if store state is incomplete
+const DEFAULT_XML_TAGS = {
+  ide: 'mandatory' as const,
+  emit: 'mandatory' as const,
+  dest: 'mandatory' as const,
+  total: 'mandatory' as const,
+  infCarga: 'optional' as const,
+}
+
 export function ValidationSettingsDialog({
   open,
   onOpenChange,
 }: ValidationSettingsDialogProps) {
   const { validationSettings, updateValidationSettings } = useErpStore()
-  const [localSettings, setLocalSettings] = useState(validationSettings)
+
+  // Initialize state with fallback to prevent accessing undefined properties
+  const [localSettings, setLocalSettings] = useState<ValidationSettings>(
+    () => ({
+      ...validationSettings,
+      xmlTags: validationSettings?.xmlTags || DEFAULT_XML_TAGS,
+    }),
+  )
 
   useEffect(() => {
-    setLocalSettings(validationSettings)
+    if (open) {
+      setLocalSettings({
+        ...validationSettings,
+        xmlTags: validationSettings?.xmlTags || DEFAULT_XML_TAGS,
+      })
+    }
   }, [validationSettings, open])
 
   const handleSave = () => {
@@ -50,14 +71,20 @@ export function ValidationSettingsDialog({
     tag: keyof typeof localSettings.xmlTags,
     checked: boolean,
   ) => {
+    // Ensure xmlTags object exists before spreading
+    const currentTags = localSettings.xmlTags || DEFAULT_XML_TAGS
+
     setLocalSettings({
       ...localSettings,
       xmlTags: {
-        ...localSettings.xmlTags,
+        ...currentTags,
         [tag]: checked ? 'mandatory' : 'optional',
       },
     })
   }
+
+  // Safe access variable for rendering
+  const currentXmlTags = localSettings.xmlTags || DEFAULT_XML_TAGS
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -83,7 +110,7 @@ export function ValidationSettingsDialog({
             </Label>
             <Switch
               id="disableGlobal"
-              checked={localSettings.disableGlobalValidation}
+              checked={localSettings.disableGlobalValidation || false}
               onCheckedChange={(c) =>
                 setLocalSettings({
                   ...localSettings,
@@ -111,7 +138,7 @@ export function ValidationSettingsDialog({
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="tag-ide"
-                      checked={localSettings.xmlTags.ide === 'mandatory'}
+                      checked={currentXmlTags.ide === 'mandatory'}
                       onCheckedChange={(c) => toggleTag('ide', c)}
                     />
                     <Label htmlFor="tag-ide">Identificação (ide)</Label>
@@ -119,7 +146,7 @@ export function ValidationSettingsDialog({
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="tag-emit"
-                      checked={localSettings.xmlTags.emit === 'mandatory'}
+                      checked={currentXmlTags.emit === 'mandatory'}
                       onCheckedChange={(c) => toggleTag('emit', c)}
                     />
                     <Label htmlFor="tag-emit">Emitente (emit)</Label>
@@ -127,7 +154,7 @@ export function ValidationSettingsDialog({
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="tag-dest"
-                      checked={localSettings.xmlTags.dest === 'mandatory'}
+                      checked={currentXmlTags.dest === 'mandatory'}
                       onCheckedChange={(c) => toggleTag('dest', c)}
                     />
                     <Label htmlFor="tag-dest">Destinatário (dest)</Label>
@@ -135,7 +162,7 @@ export function ValidationSettingsDialog({
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="tag-total"
-                      checked={localSettings.xmlTags.total === 'mandatory'}
+                      checked={currentXmlTags.total === 'mandatory'}
                       onCheckedChange={(c) => toggleTag('total', c)}
                     />
                     <Label htmlFor="tag-total">Valores Totais (total)</Label>
@@ -143,7 +170,7 @@ export function ValidationSettingsDialog({
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="tag-infCarga"
-                      checked={localSettings.xmlTags.infCarga === 'mandatory'}
+                      checked={currentXmlTags.infCarga === 'mandatory'}
                       onCheckedChange={(c) => toggleTag('infCarga', c)}
                     />
                     <Label htmlFor="tag-infCarga">Info Carga (infCarga)</Label>

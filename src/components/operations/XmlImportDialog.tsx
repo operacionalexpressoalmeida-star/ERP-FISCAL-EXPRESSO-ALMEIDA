@@ -71,6 +71,14 @@ interface ProcessedFile {
   missingTags?: string[]
 }
 
+const DEFAULT_XML_TAGS = {
+  ide: 'mandatory',
+  emit: 'mandatory',
+  dest: 'mandatory',
+  total: 'mandatory',
+  infCarga: 'optional',
+} as const
+
 export function XmlImportDialog({
   open,
   onOpenChange,
@@ -169,8 +177,10 @@ export function XmlImportDialog({
             const criticalMissing: string[] = []
 
             missing.forEach((tag) => {
+              // Robust check for xmlTags
+              const tagsConfig = validationSettings.xmlTags || DEFAULT_XML_TAGS
               // @ts-expect-error
-              const config = validationSettings.xmlTags[tag]
+              const config = tagsConfig[tag]
               if (config === 'mandatory') {
                 criticalMissing.push(tag)
               } else {
