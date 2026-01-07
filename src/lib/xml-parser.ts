@@ -58,6 +58,12 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const cnpjEmit = getValue(emit, 'CNPJ')
     const cnpjDest = getValue(dest, 'CNPJ')
 
+    // Attempt to extract access key
+    let accessKey = ''
+    if (infNFe.hasAttribute('Id')) {
+      accessKey = infNFe.getAttribute('Id')?.replace('NFe', '') || ''
+    }
+
     // Extract first product
     const det = infNFe.getElementsByTagName('det')[0]
     const prod = det?.getElementsByTagName('prod')[0]
@@ -87,6 +93,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       providerCnpj: cnpjEmit,
       recipientCnpj: cnpjDest,
       documentNumber: nNF,
+      accessKey,
       category,
       icmsValue: 0,
       pisValue: 0,
@@ -106,8 +113,37 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const ide = infCte.getElementsByTagName('ide')[0]
     const ufIni = getValue(ide, 'UFIni')
     const ufFim = getValue(ide, 'UFFim')
+
+    // Parties
     const dest = infCte.getElementsByTagName('dest')[0]
-    const cnpjDest = getValue(dest!, 'CNPJ')
+    const cnpjDest = getValue(dest!, 'CNPJ') || getValue(dest!, 'CPF')
+    const xNomeDest = getValue(dest!, 'xNome')
+
+    const emit = infCte.getElementsByTagName('emit')[0]
+    const cnpjEmit = getValue(emit!, 'CNPJ')
+    const xNomeEmit = getValue(emit!, 'xNome')
+
+    // Taxes (ICMS)
+    let icmsValue = 0
+    const imp = infCte.getElementsByTagName('imp')[0]
+    if (imp) {
+      const icms = imp.getElementsByTagName('ICMS')[0]
+      if (icms) {
+        // Look for common tags inside ICMS00, ICMS20, etc.
+        // We search for any tag ending in 'vICMS' that is direct child of a CST group
+        // A simple approach is searching for 'vICMS' in the subtree of 'ICMS'
+        const vICMS = icms.getElementsByTagName('vICMS')[0]
+        if (vICMS) {
+          icmsValue = parseFloat(vICMS.textContent || '0')
+        }
+      }
+    }
+
+    // Access Key
+    let accessKey = ''
+    if (infCte.hasAttribute('Id')) {
+      accessKey = infCte.getAttribute('Id')?.replace('CTe', '') || ''
+    }
 
     const xObs = getValue(infCte, 'xObs')
     const description = xObs
@@ -125,7 +161,11 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       destination: ufFim,
       description: description,
       recipientCnpj: cnpjDest,
-      icmsValue: 0,
+      takerName: xNomeDest,
+      providerCnpj: cnpjEmit,
+      providerName: xNomeEmit,
+      accessKey,
+      icmsValue,
       pisValue: 0,
       cofinsValue: 0,
     }
@@ -146,6 +186,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const tomador = xmlDoc.getElementsByTagName('Tomador')[0]
     const cpfCnpj = tomador?.getElementsByTagName('CpfCnpj')[0]
     const cnpjTomador = getValue(cpfCnpj!, 'Cnpj')
+    const razaoSocialTomador = getValue(tomador!, 'RazaoSocial')
 
     // Attempt to find Prestador CNPJ
     const prestador =
@@ -168,6 +209,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
           : `Serviço NFS-e ${numero}`,
         cteNumber: numero,
         recipientCnpj: cnpjTomador,
+        takerName: razaoSocialTomador,
         providerCnpj: cnpjPrestador,
         providerName: razaoSocialPrestador,
         documentNumber: numero,

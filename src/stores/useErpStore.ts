@@ -127,6 +127,7 @@ export interface Transaction {
   origin?: string
   destination?: string
   cteNumber?: string
+  accessKey?: string
   category?: string
   isDeductibleIrpjCsll?: boolean
   hasCreditPisCofins?: boolean

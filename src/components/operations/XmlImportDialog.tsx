@@ -50,7 +50,7 @@ export function XmlImportDialog({
     for (const file of files) {
       try {
         const item = await parseFiscalXml(file)
-        calculateTaxes(item)
+        calculateTaxesIfNeeded(item)
         newItems.push(item)
         importedCount++
       } catch (err) {
@@ -78,20 +78,20 @@ export function XmlImportDialog({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const calculateTaxes = (item: ParsedFiscalDoc) => {
+  const calculateTaxesIfNeeded = (item: ParsedFiscalDoc) => {
     const val = item.value
 
-    // PIS/COFINS (Lucro Real Presumption)
-    item.pisValue = parseFloat((val * 0.0165).toFixed(2))
-    item.cofinsValue = parseFloat((val * 0.076).toFixed(2))
+    // Only estimate if values are 0 (not parsed from XML)
+    if (item.pisValue === 0 && item.cofinsValue === 0) {
+      // PIS/COFINS (Lucro Real Presumption)
+      item.pisValue = parseFloat((val * 0.0165).toFixed(2))
+      item.cofinsValue = parseFloat((val * 0.076).toFixed(2))
+    }
 
-    // ICMS Logic (Simplified simulation)
-    if (item.origin && item.destination) {
+    if (item.icmsValue === 0 && item.origin && item.destination) {
       const isInternal = item.origin === item.destination
       const rate = isInternal ? 0.18 : 0.12
       item.icmsValue = parseFloat((val * rate).toFixed(2))
-    } else {
-      item.icmsValue = 0
     }
   }
 
@@ -107,12 +107,11 @@ export function XmlImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Importar XML (NF-e, NFS-e, CT-e)</DialogTitle>
           <DialogDescription>
             Carregue arquivos XML para extração automática de dados fiscais.
-            Notas de combustível e serviços serão identificadas.
           </DialogDescription>
         </DialogHeader>
 
@@ -182,8 +181,9 @@ export function XmlImportDialog({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Data</TableHead>
-                      <TableHead>Número</TableHead>
+                      <TableHead>Número / Chave</TableHead>
                       <TableHead>Tipo</TableHead>
+                      <TableHead>Parceiro</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
@@ -195,11 +195,26 @@ export function XmlImportDialog({
                         <TableCell>
                           {new Date(item.date).toLocaleDateString('pt-BR')}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {item.cteNumber || item.documentNumber || '-'}
+                        <TableCell className="font-mono text-xs max-w-[150px]">
+                          <div className="truncate font-semibold">
+                            {item.cteNumber || item.documentNumber || '-'}
+                          </div>
+                          {item.accessKey && (
+                            <div
+                              className="truncate text-[10px] text-muted-foreground"
+                              title={item.accessKey}
+                            >
+                              {item.accessKey}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs">
                           {item.type === 'expense' ? 'Despesa' : 'Receita'}
+                        </TableCell>
+                        <TableCell className="text-xs truncate max-w-[120px]">
+                          {item.type === 'revenue'
+                            ? item.takerName || item.recipientCnpj
+                            : item.providerName || item.providerCnpj}
                         </TableCell>
                         <TableCell
                           className="max-w-[180px] truncate text-xs"

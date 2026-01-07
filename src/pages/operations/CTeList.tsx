@@ -15,16 +15,21 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { RefreshCw, FileText } from 'lucide-react'
+import { RefreshCw, FileText, Upload } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState } from 'react'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
+import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
+import { ParsedFiscalDoc } from '@/lib/xml-parser'
+import { toast } from '@/hooks/use-toast'
 
 const ITEMS_PER_PAGE = 10
 
 export default function CTeList() {
-  const { getFilteredTransactions } = useErpStore()
+  const { getFilteredTransactions, addTransaction, selectedCompanyId } =
+    useErpStore()
+  const [isImportOpen, setIsImportOpen] = useState(false)
 
   // Only Revenue transactions (CT-e)
   const transactions = getFilteredTransactions().filter(
@@ -39,6 +44,52 @@ export default function CTeList() {
     currentPage * ITEMS_PER_PAGE,
   )
 
+  const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
+    let addedCount = 0
+    let duplicateCount = 0
+    const existingKeys = new Set(
+      transactions.map((t) => t.accessKey || t.cteNumber),
+    )
+
+    items.forEach((item) => {
+      // Basic Duplicate Check
+      // Prioritize Access Key check, fallback to Number check if key missing
+      const isDuplicate = item.accessKey
+        ? existingKeys.has(item.accessKey)
+        : existingKeys.has(item.cteNumber)
+
+      if (isDuplicate) {
+        duplicateCount++
+        return
+      }
+
+      addTransaction({
+        ...item,
+        companyId:
+          selectedCompanyId === 'consolidated'
+            ? 'c1' // Default to Matrix if consolidated
+            : selectedCompanyId,
+        status: 'approved', // Auto-approve imported revenues
+      })
+      addedCount++
+    })
+
+    if (addedCount > 0) {
+      toast({
+        title: 'Importação Concluída',
+        description: `${addedCount} novos CT-es registrados com sucesso.`,
+      })
+    }
+
+    if (duplicateCount > 0) {
+      toast({
+        title: 'Duplicidades Encontradas',
+        description: `${duplicateCount} documentos já existiam e foram ignorados.`,
+        variant: 'warning',
+      })
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex justify-between items-center">
@@ -50,9 +101,14 @@ export default function CTeList() {
             Gestão de emissões fiscais de transporte.
           </p>
         </div>
-        <Button variant="outline">
-          <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="default" onClick={() => setIsImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" /> Importar XML
+          </Button>
+          <Button variant="outline">
+            <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -81,9 +137,19 @@ export default function CTeList() {
                     {new Date(t.date).toLocaleDateString('pt-BR')}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1 font-mono">
-                      <FileText className="h-3 w-3 text-muted-foreground" />
-                      {t.cteNumber}
+                    <div className="flex flex-col gap-1 font-mono">
+                      <div className="flex items-center gap-1">
+                        <FileText className="h-3 w-3 text-muted-foreground" />
+                        <span>{t.cteNumber}</span>
+                      </div>
+                      {t.accessKey && (
+                        <span
+                          className="text-[10px] text-muted-foreground truncate max-w-[120px]"
+                          title={t.accessKey}
+                        >
+                          {t.accessKey}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -132,6 +198,12 @@ export default function CTeList() {
           />
         </CardContent>
       </Card>
+
+      <XmlImportDialog
+        open={isImportOpen}
+        onOpenChange={setIsImportOpen}
+        onConfirm={handleImportConfirm}
+      />
     </div>
   )
 }
