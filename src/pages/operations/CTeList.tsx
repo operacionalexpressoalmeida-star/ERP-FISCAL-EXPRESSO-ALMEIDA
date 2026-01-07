@@ -16,13 +16,11 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import {
-  RefreshCw,
   FileText,
   Upload,
   AlertCircle,
   AlertTriangle,
   Clock,
-  BarChart3,
   Plus,
   Pencil,
   Trash2,
@@ -32,7 +30,6 @@ import {
   ShieldX,
   AlertOctagon,
   CheckCircle,
-  XCircle,
   Loader2,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
@@ -444,7 +441,9 @@ export default function CTeList() {
                     <TableHead>Origem / Destino</TableHead>
                     <TableHead>Autenticidade SEFAZ</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="text-center">Status Interno</TableHead>
+                    <TableHead className="text-center">
+                      Status Interno
+                    </TableHead>
                     <TableHead className="w-[100px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -453,6 +452,7 @@ export default function CTeList() {
                     const alert = getAlertStatus(t)
                     const hasWarnings =
                       t.consistencyWarnings && t.consistencyWarnings.length > 0
+                    const AlertIcon = alert?.icon
 
                     return (
                       <TableRow key={t.id}>
@@ -473,9 +473,11 @@ export default function CTeList() {
                                   {hasWarnings ? (
                                     <AlertOctagon className="h-4 w-4 text-amber-600" />
                                   ) : (
-                                    <alert!.icon
-                                      className={`h-4 w-4 ${alert!.class}`}
-                                    />
+                                    AlertIcon && (
+                                      <AlertIcon
+                                        className={`h-4 w-4 ${alert?.class}`}
+                                      />
+                                    )
                                   )}
                                 </Button>
                               </TooltipTrigger>
