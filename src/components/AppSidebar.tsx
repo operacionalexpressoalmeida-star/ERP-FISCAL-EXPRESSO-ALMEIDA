@@ -27,7 +27,6 @@ import {
   CheckSquare,
   FileText,
   Network,
-  FileSignature,
   TrendingUp,
   Settings2,
 } from 'lucide-react'
@@ -105,9 +104,11 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={location.pathname.startsWith('/assets')}
+                  isActive={location.pathname.startsWith(
+                    '/assets/fixed-assets',
+                  )}
                 >
-                  <Link to="/assets">
+                  <Link to="/assets/fixed-assets">
                     <Archive />
                     <span>Ativos Imobilizados</span>
                   </Link>
@@ -140,17 +141,6 @@ export function AppSidebar() {
                   <Link to="/operations/cte">
                     <Truck />
                     <span>Receitas (CT-e)</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname.startsWith('/operations/nfse')}
-                >
-                  <Link to="/operations/nfse">
-                    <FileSignature />
-                    <span>Serviços (NFS-e)</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

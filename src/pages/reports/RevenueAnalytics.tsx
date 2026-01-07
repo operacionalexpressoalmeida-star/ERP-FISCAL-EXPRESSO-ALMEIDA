@@ -236,9 +236,7 @@ export default function RevenueAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalDocs}</div>
-            <p className="text-xs text-muted-foreground">
-              Documentos (CT-e/NFS-e)
-            </p>
+            <p className="text-xs text-muted-foreground">Documentos (CT-e)</p>
           </CardContent>
         </Card>
       </div>

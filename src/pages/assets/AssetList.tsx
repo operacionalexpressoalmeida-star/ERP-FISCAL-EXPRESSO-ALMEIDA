@@ -18,7 +18,7 @@ import {
   FileText,
   Calculator,
 } from 'lucide-react'
-import { formatCurrency, cn } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
   Dialog,

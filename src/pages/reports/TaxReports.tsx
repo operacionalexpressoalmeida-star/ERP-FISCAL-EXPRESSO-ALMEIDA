@@ -26,11 +26,13 @@ import { Printer, CalendarCheck, Lock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState } from 'react'
 import { toast } from '@/hooks/use-toast'
+import { differenceInMonths } from 'date-fns'
 
 export default function TaxReports() {
   const {
     getFilteredTransactions,
     getFilteredLalurEntries,
+    getFilteredAssets,
     companies,
     selectedCompanyId,
     requestClosing,
@@ -44,11 +46,17 @@ export default function TaxReports() {
     (t) => t.status === 'approved',
   )
   const lalur = getFilteredLalurEntries()
+  const assets = getFilteredAssets()
 
   // Simplified Calculation Logic for the Report
   const totalRevenue = transactions
     .filter((t) => t.type === 'revenue')
     .reduce((acc, t) => acc + t.value, 0)
+
+  const totalExpenses = transactions
+    .filter((t) => t.type === 'expense')
+    .reduce((acc, t) => acc + t.value, 0)
+
   const icms = transactions.reduce(
     (acc, t) => acc + (t.type === 'revenue' ? t.icmsValue : -t.icmsValue),
     0,
@@ -62,9 +70,33 @@ export default function TaxReports() {
     0,
   )
 
-  // IRPJ/CSLL Estimation (Simplistic)
-  const irpj = Math.max(0, totalRevenue * 0.15) // Mock calc
-  const csll = Math.max(0, totalRevenue * 0.09) // Mock calc
+  // Calculate Total Depreciation for IRPJ/CSLL deduction
+  const totalDepreciation = assets.reduce((acc, asset) => {
+    // Only count active assets
+    if (asset.status !== 'Active') return acc
+
+    const depreciableAmount = Math.max(
+      0,
+      asset.originalValue - asset.residualValue,
+    )
+    const monthlyDepreciation =
+      asset.usefulLife > 0 ? depreciableAmount / asset.usefulLife : 0
+
+    // Simple check: if asset was acquired before or during this month/year, count depreciation
+    // Ideally we check if it is fully depreciated too, but assuming active assets depreciate
+    return acc + monthlyDepreciation
+  }, 0)
+
+  // Real Profit Estimation
+  // Profit = Revenue - Expenses - Depreciation
+  const accountingProfit = Math.max(
+    0,
+    totalRevenue - totalExpenses - totalDepreciation,
+  )
+
+  // IRPJ/CSLL Estimation (Real Profit)
+  const irpj = accountingProfit * 0.15
+  const csll = accountingProfit * 0.09
 
   const handlePrint = () => {
     window.print()
@@ -238,16 +270,20 @@ export default function TaxReports() {
             <h3 className="font-bold text-lg mb-2 border-l-4 border-primary pl-2">
               3. IRPJ e CSLL (Lucro Real Estimado)
             </h3>
+            <CardDescription className="mb-4">
+              Base de Cálculo: Receita - Despesas - Depreciação do Ativo
+              Imobilizado ({formatCurrency(totalDepreciation)})
+            </CardDescription>
             <Table>
               <TableBody>
                 <TableRow>
-                  <TableCell>IRPJ (Estimativa Mensal)</TableCell>
+                  <TableCell>IRPJ (15% sobre Lucro Real)</TableCell>
                   <TableCell className="text-right font-mono">
                     {formatCurrency(irpj)}
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>CSLL (Estimativa Mensal)</TableCell>
+                  <TableCell>CSLL (9% sobre Lucro Real)</TableCell>
                   <TableCell className="text-right font-mono">
                     {formatCurrency(csll)}
                   </TableCell>

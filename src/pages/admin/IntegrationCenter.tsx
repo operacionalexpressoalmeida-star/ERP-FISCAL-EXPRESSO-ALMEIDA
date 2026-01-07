@@ -19,7 +19,6 @@ import {
   Receipt,
   Truck,
   ShieldCheck,
-  FileCheck,
   Upload,
   CheckCircle2,
   XCircle,
@@ -87,7 +86,7 @@ export default function IntegrationCenter() {
     getConfig('api_sascar', 'Sascar Fleet'),
   )
   const [sefaz, setSefaz] = useState<ApiConfig>(
-    getConfig('api_sefaz', 'SEFAZ Nacional (NFS-e)', 'fiscal'),
+    getConfig('api_sefaz', 'SEFAZ Nacional (CT-e)', 'fiscal'),
   )
   const [ciot, setCiot] = useState<ApiConfig>(
     getConfig('api_ciot', 'Integração CIOT', 'payment'),
@@ -226,37 +225,6 @@ export default function IntegrationCenter() {
     }
   }
 
-  // SEFAZ Actions
-  const handleIssueNfse = () => {
-    if (!sefaz.isActive) {
-      toast({
-        title: 'Integração Inativa',
-        description: 'Ative a integração SEFAZ primeiro.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    toast({
-      title: 'Emitindo NFS-e...',
-      description: 'Enviando XML para a Prefeitura.',
-    })
-    setTimeout(() => {
-      addIntegrationLog({
-        type: 'SEFAZ',
-        action: 'Emissão NFS-e',
-        status: 'success',
-        message:
-          'NFS-e 4502 autorizada com sucesso. Protocolo: 135240001234567',
-        timestamp: new Date().toISOString(),
-      })
-      toast({
-        title: 'NFS-e Autorizada',
-        description: 'Nota fiscal emitida com sucesso.',
-      })
-    }, 1500)
-  }
-
   // CIOT Actions
   const handleGenerateCiot = () => {
     if (!ciot.isActive) {
@@ -332,7 +300,7 @@ export default function IntegrationCenter() {
       <Tabs defaultValue="tracking" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 lg:w-[800px]">
           <TabsTrigger value="tracking">Rastreamento</TabsTrigger>
-          <TabsTrigger value="fiscal">Fiscal (SEFAZ)</TabsTrigger>
+          <TabsTrigger value="fiscal">Fiscal (CT-e)</TabsTrigger>
           <TabsTrigger value="payment">Pagamentos</TabsTrigger>
           <TabsTrigger value="certs">Certificados</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
@@ -465,7 +433,7 @@ export default function IntegrationCenter() {
                   />
                 </div>
                 <CardDescription>
-                  Comunicação com a Secretaria da Fazenda para NFe/NFSe.
+                  Comunicação com a Secretaria da Fazenda para NFe/CT-e.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -550,7 +518,7 @@ export default function IntegrationCenter() {
             <Card>
               <CardHeader>
                 <CardTitle>Ações de Teste</CardTitle>
-                <CardDescription>Diagnóstico e emissão manual.</CardDescription>
+                <CardDescription>Diagnóstico de conexão.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Button
@@ -558,13 +526,7 @@ export default function IntegrationCenter() {
                   className="w-full"
                   onClick={() => handleSync(sefaz)}
                 >
-                  <RefreshCw className="mr-2 h-4 w-4" /> Sincronizar NF-e
-                </Button>
-                <Button
-                  className="w-full bg-amber-600 hover:bg-amber-700"
-                  onClick={handleIssueNfse}
-                >
-                  <FileCheck className="mr-2 h-4 w-4" /> Simular Emissão NFS-e
+                  <RefreshCw className="mr-2 h-4 w-4" /> Sincronizar NF-e/CT-e
                 </Button>
               </CardContent>
               <CardFooter>
