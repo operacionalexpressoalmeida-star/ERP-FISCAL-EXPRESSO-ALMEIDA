@@ -24,8 +24,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   AlertOctagon,
+  XCircle,
+  HelpCircle,
 } from 'lucide-react'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
 import { formatCurrency } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -39,6 +41,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface XmlImportDialogProps {
   open: boolean
@@ -48,33 +51,61 @@ interface XmlImportDialogProps {
 
 type UploadStatus = 'idle' | 'processing' | 'complete' | 'error'
 
+interface ErrorItem {
+  fileName: string
+  error: string
+  suggestion: string
+}
+
 export function XmlImportDialog({
   open,
   onOpenChange,
   onConfirm,
 }: XmlImportDialogProps) {
-  const { companies } = useErpStore()
+  const { companies, transactions } = useErpStore()
   const [items, setItems] = useState<ParsedFiscalDoc[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle')
   const [progress, setProgress] = useState(0)
   const [processedCount, setProcessedCount] = useState(0)
+  const [successCount, setSuccessCount] = useState(0)
+  const [failureCount, setFailureCount] = useState(0)
   const [totalFiles, setTotalFiles] = useState(0)
-  const [errorLog, setErrorLog] = useState<
-    { fileName: string; error: string }[]
-  >([])
+  const [errorLog, setErrorLog] = useState<ErrorItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab] = useState<'valid' | 'errors'>('valid')
 
-  const processFiles = async (files: File[]) => {
+  // Prevent navigation during processing
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (uploadStatus === 'processing') {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [uploadStatus])
+
+  const existingKeys = useMemo(
+    () => new Set(transactions.map((t) => t.accessKey || t.cteNumber)),
+    [transactions],
+  )
+
+  const processFiles = async (files: File[], append = false) => {
     setUploadStatus('processing')
-    setTotalFiles(files.length)
-    setProgress(0)
-    setProcessedCount(0)
-    setErrorLog([])
-    setItems([])
+    setTotalFiles((prev) => (append ? prev + files.length : files.length))
+    if (!append) {
+      setProgress(0)
+      setProcessedCount(0)
+      setSuccessCount(0)
+      setFailureCount(0)
+      setErrorLog([])
+      setItems([])
+    }
 
-    const CHUNK_SIZE = 20
+    const CHUNK_SIZE = 10 // Reduced chunk size for UI responsiveness
     const newItems: ParsedFiscalDoc[] = []
-    const newErrors: { fileName: string; error: string }[] = []
+    const newErrors: ErrorItem[] = []
 
     // Helper to process a chunk of files
     const processChunk = async (chunk: File[]) => {
@@ -82,17 +113,48 @@ export function XmlImportDialog({
         chunk.map(async (file) => {
           try {
             if (file.type !== 'text/xml' && !file.name.endsWith('.xml')) {
-              throw new Error('Formato inválido. Apenas XML permitido.')
+              throw new Error('Formato de arquivo inválido. Apenas XML.')
             }
+
             const item = await parseFiscalXml(file)
+
+            // Duplicate Check
+            const key = item.accessKey || item.cteNumber
+            if (key && existingKeys.has(key)) {
+              throw new Error('Documento duplicado (já registrado no sistema).')
+            }
+
+            // Schema/Mandatory Fields Validation
+            if (!item.cteNumber && !item.documentNumber) {
+              throw new Error('Número do documento não encontrado no XML.')
+            }
+            if (item.value <= 0) {
+              throw new Error('Valor do documento inválido (Zero ou Negativo).')
+            }
+
             calculateTaxesIfNeeded(item)
             validateConsistency(item)
+
             return { status: 'success' as const, item }
           } catch (err: any) {
+            let suggestion = 'Verifique a estrutura do XML.'
+            const msg = err.message || 'Erro desconhecido'
+
+            if (msg.includes('duplicado'))
+              suggestion =
+                'Verifique se este CT-e já não foi importado anteriormente.'
+            if (msg.includes('inválido'))
+              suggestion = 'Remova arquivos que não sejam XML.'
+            if (msg.includes('Número'))
+              suggestion = 'O XML pode estar corrompido ou incompleto.'
+            if (msg.includes('Valor'))
+              suggestion = 'Verifique as tags de valor total no XML.'
+
             return {
               status: 'error' as const,
               fileName: file.name,
-              error: err.message || 'Erro desconhecido',
+              error: msg,
+              suggestion,
             }
           }
         }),
@@ -101,6 +163,8 @@ export function XmlImportDialog({
     }
 
     // Iterate through chunks
+    let currentProcessedLocal = 0
+
     for (let i = 0; i < files.length; i += CHUNK_SIZE) {
       const chunk = files.slice(i, i + CHUNK_SIZE)
       const results = await processChunk(chunk)
@@ -108,23 +172,43 @@ export function XmlImportDialog({
       results.forEach((res) => {
         if (res.status === 'success') {
           newItems.push(res.item)
+          setSuccessCount((prev) => prev + 1)
         } else {
-          newErrors.push({ fileName: res.fileName, error: res.error })
+          newErrors.push({
+            fileName: res.fileName,
+            error: res.error,
+            suggestion: res.suggestion,
+          })
+          setFailureCount((prev) => prev + 1)
         }
       })
 
-      const currentProcessed = Math.min(i + CHUNK_SIZE, files.length)
-      setProcessedCount(currentProcessed)
-      setProgress(Math.round((currentProcessed / files.length) * 100))
+      currentProcessedLocal += chunk.length
+      setProcessedCount((prev) => prev + chunk.length)
 
-      // Yield to main thread to allow UI update
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      // Yield to main thread
+      await new Promise((resolve) => setTimeout(resolve, 10))
     }
 
-    setItems(newItems)
-    setErrorLog(newErrors)
+    setItems((prev) => [...prev, ...newItems])
+    setErrorLog((prev) => [...prev, ...newErrors])
     setUploadStatus('complete')
+
+    if (newErrors.length > 0) {
+      setActiveTab('errors')
+    } else {
+      setActiveTab('valid')
+    }
   }
+
+  // Effect to update progress percentage
+  useEffect(() => {
+    if (totalFiles > 0) {
+      setProgress(Math.round((processedCount / totalFiles) * 100))
+    } else {
+      setProgress(0)
+    }
+  }, [processedCount, totalFiles])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
@@ -137,7 +221,9 @@ export function XmlImportDialog({
       })
       return
     }
-    processFiles(files)
+    // Append logic: if items exist, append new files to current batch
+    const append = items.length > 0 || errorLog.length > 0
+    processFiles(files, append)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -156,7 +242,8 @@ export function XmlImportDialog({
         })
         return
       }
-      processFiles(files)
+      const append = items.length > 0 || errorLog.length > 0
+      processFiles(files, append)
     }
   }
 
@@ -184,7 +271,6 @@ export function XmlImportDialog({
     // Check if issuer is known (for revenue)
     if (item.type === 'revenue' && item.providerCnpj) {
       const knownIssuer = companies.some((c) => {
-        // Strip formatting to compare
         const cCnpj = c.cnpj.replace(/\D/g, '')
         const iCnpj = item.providerCnpj?.replace(/\D/g, '')
         return cCnpj === iCnpj
@@ -194,24 +280,21 @@ export function XmlImportDialog({
       }
     }
 
-    // High Value Check
     if (item.value > 100000) {
       warnings.push('Valor elevado (> R$ 100k). Requer atenção.')
     }
 
-    // Missing critical fields
     if (!item.cfop) {
       warnings.push('CFOP não identificado.')
     }
 
-    // State validation
     if (item.origin && item.origin.length !== 2) {
       warnings.push('Sigla de origem inválida.')
     }
 
     item.consistencyWarnings = warnings
     if (warnings.length > 0) {
-      item.status = 'pending' // Force pending if warnings exist
+      item.status = 'pending'
     }
   }
 
@@ -221,27 +304,72 @@ export function XmlImportDialog({
   }
 
   const handleClose = () => {
+    if (uploadStatus === 'processing') {
+      const confirmCancel = window.confirm(
+        'O processamento ainda está em andamento. Deseja cancelar?',
+      )
+      if (!confirmCancel) return
+    }
     setItems([])
     setErrorLog([])
     setUploadStatus('idle')
+    setTotalFiles(0)
+    setProcessedCount(0)
+    setSuccessCount(0)
+    setFailureCount(0)
     onOpenChange(false)
+  }
+
+  const clearErrors = () => {
+    setErrorLog([])
+    setFailureCount(0)
+    setTotalFiles(items.length)
+    setProcessedCount(items.length)
+    if (items.length > 0) setActiveTab('valid')
   }
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && handleClose()}>
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Importação em Massa (XML)</DialogTitle>
+      <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="p-6 pb-2">
+          <DialogTitle className="flex justify-between items-center">
+            <span>Importação em Massa (XML)</span>
+            {uploadStatus !== 'idle' && (
+              <span className="text-sm font-normal text-muted-foreground">
+                {processedCount} / {totalFiles} processados
+              </span>
+            )}
+          </DialogTitle>
           <DialogDescription>
-            Arraste arquivos ou clique para selecionar. O sistema validará a
-            consistência automaticamente.
+            Importe até 1.000 arquivos simultaneamente. Erros serão listados
+            separadamente.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden flex flex-col gap-4 py-4">
-          {uploadStatus === 'idle' ? (
+        <div className="flex-1 overflow-hidden flex flex-col p-6 pt-2 gap-4">
+          {uploadStatus === 'processing' && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs mb-1">
+                <span>Processando...</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+              <div className="flex gap-4 text-xs text-muted-foreground justify-center">
+                <span className="text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> {successCount} Sucessos
+                </span>
+                <span className="text-rose-600 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" /> {failureCount} Falhas
+                </span>
+              </div>
+            </div>
+          )}
+
+          {uploadStatus === 'idle' &&
+          items.length === 0 &&
+          errorLog.length === 0 ? (
             <div
-              className="border-2 border-dashed rounded-lg flex-1 min-h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-4 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
+              className="border-2 border-dashed rounded-lg flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
               onClick={() => fileInputRef.current?.click()}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
@@ -264,161 +392,229 @@ export function XmlImportDialog({
                 onChange={handleFileChange}
               />
             </div>
-          ) : uploadStatus === 'processing' ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-6 min-h-[300px]">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <div className="w-full max-w-md space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Processando e Validando...</span>
-                  <span>
-                    {processedCount} de {totalFiles}
-                  </span>
-                </div>
-                <Progress value={progress} className="h-2" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Por favor, aguarde enquanto validamos as informações fiscais.
-              </p>
-            </div>
           ) : (
-            <div className="flex flex-col gap-4 h-full">
-              <div className="grid grid-cols-2 gap-4">
-                <Alert className="bg-green-50 border-green-200">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <AlertTitle className="text-green-800">Sucesso</AlertTitle>
-                  <AlertDescription className="text-green-700">
-                    {items.length} arquivos lidos corretamente.
-                  </AlertDescription>
-                </Alert>
-                <Alert
-                  variant={errorLog.length > 0 ? 'destructive' : 'default'}
-                  className={
-                    errorLog.length === 0 ? 'bg-gray-50 border-gray-200' : ''
-                  }
+            <div className="flex flex-col gap-4 h-full overflow-hidden">
+              <div className="flex justify-between items-center">
+                <Tabs
+                  value={activeTab}
+                  onValueChange={(v) => setActiveTab(v as any)}
+                  className="w-full"
                 >
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Erros</AlertTitle>
-                  <AlertDescription>
-                    {errorLog.length} arquivos falharam.
-                  </AlertDescription>
-                </Alert>
-              </div>
+                  <div className="flex justify-between items-center w-full">
+                    <TabsList>
+                      <TabsTrigger value="valid" className="gap-2">
+                        <CheckCircle2 className="h-4 w-4" /> Válidos
+                        <Badge variant="secondary" className="ml-1">
+                          {items.length}
+                        </Badge>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="errors"
+                        className="gap-2 text-destructive data-[state=active]:text-destructive"
+                      >
+                        <AlertTriangle className="h-4 w-4" /> Erros
+                        {errorLog.length > 0 && (
+                          <Badge variant="destructive" className="ml-1">
+                            {errorLog.length}
+                          </Badge>
+                        )}
+                      </TabsTrigger>
+                    </TabsList>
 
-              {errorLog.length > 0 && (
-                <div className="border rounded-md p-4 bg-red-50 overflow-y-auto max-h-[100px]">
-                  <h4 className="font-semibold text-red-800 text-xs mb-2">
-                    Arquivos com erro:
-                  </h4>
-                  <ul className="text-xs text-red-700 space-y-1">
-                    {errorLog.map((err, i) => (
-                      <li key={i} className="flex justify-between">
-                        <span>{err.fileName}</span>
-                        <span className="font-mono">{err.error}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <FileUp className="mr-2 h-4 w-4" /> Adicionar Mais
+                      </Button>
+                      {errorLog.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={clearErrors}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Limpar Erros
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-              <div className="flex justify-between items-center mt-2">
-                <h3 className="font-semibold text-sm">
-                  Pré-visualização dos Itens Válidos
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setUploadStatus('idle')}
-                >
-                  Nova Importação
-                </Button>
-              </div>
-
-              <ScrollArea className="flex-1 border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Número</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="text-center">Alertas</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((item, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-mono text-xs">
-                          {item.cteNumber || item.documentNumber || '-'}
-                        </TableCell>
-                        <TableCell className="text-xs max-w-[200px] truncate">
-                          {item.description}
-                        </TableCell>
-                        <TableCell className="text-right font-medium text-xs">
-                          {formatCurrency(item.value)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {item.consistencyWarnings &&
-                          item.consistencyWarnings.length > 0 ? (
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <Badge
-                                  variant="outline"
-                                  className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                  <TabsContent
+                    value="valid"
+                    className="mt-4 h-[calc(100%-40px)]"
+                  >
+                    <ScrollArea className="h-full border rounded-md">
+                      <Table>
+                        <TableHeader className="bg-muted/50 sticky top-0 z-10">
+                          <TableRow>
+                            <TableHead>Número</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead className="text-right">Valor</TableHead>
+                            <TableHead className="text-center">
+                              Status
+                            </TableHead>
+                            <TableHead className="w-[50px]"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items.map((item, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs">
+                                {item.cteNumber || item.documentNumber || '-'}
+                              </TableCell>
+                              <TableCell className="text-xs max-w-[200px] truncate">
+                                {item.description}
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-xs">
+                                {formatCurrency(item.value)}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {item.consistencyWarnings &&
+                                item.consistencyWarnings.length > 0 ? (
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                                      >
+                                        <AlertOctagon className="h-3 w-3" />
+                                        {item.consistencyWarnings.length}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <ul className="list-disc pl-4 text-xs">
+                                        {item.consistencyWarnings.map(
+                                          (w, idx) => (
+                                            <li key={idx}>{w}</li>
+                                          ),
+                                        )}
+                                      </ul>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-green-50 text-green-700 border-green-200"
+                                  >
+                                    OK
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    setItems(
+                                      items.filter((_, idx) => idx !== i),
+                                    )
+                                  }
                                 >
-                                  <AlertOctagon className="h-3 w-3" />
-                                  {item.consistencyWarnings.length}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <ul className="list-disc pl-4 text-xs">
-                                  {item.consistencyWarnings.map((w, idx) => (
-                                    <li key={idx}>{w}</li>
-                                  ))}
-                                </ul>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="bg-green-50 text-green-700 border-green-200"
-                            >
-                              OK
-                            </Badge>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {items.length === 0 && (
+                            <TableRow>
+                              <TableCell
+                                colSpan={5}
+                                className="text-center h-24 text-muted-foreground"
+                              >
+                                Nenhum item válido na lista.
+                              </TableCell>
+                            </TableRow>
                           )}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() =>
-                              setItems(items.filter((_, idx) => idx !== i))
-                            }
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                        </TableBody>
+                      </Table>
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent
+                    value="errors"
+                    className="mt-4 h-[calc(100%-40px)]"
+                  >
+                    <div className="h-full flex flex-col gap-4">
+                      <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Arquivos Falharam</AlertTitle>
+                        <AlertDescription>
+                          {errorLog.length} arquivos não puderam ser
+                          processados. Veja detalhes abaixo.
+                        </AlertDescription>
+                      </Alert>
+
+                      <ScrollArea className="flex-1 border rounded-md bg-red-50/30">
+                        <Table>
+                          <TableHeader className="bg-red-100/50 sticky top-0 z-10">
+                            <TableRow>
+                              <TableHead className="w-[30%]">Arquivo</TableHead>
+                              <TableHead className="w-[30%]">
+                                Erro Detectado
+                              </TableHead>
+                              <TableHead className="w-[40%]">
+                                Sugestão de Correção
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {errorLog.map((err, i) => (
+                              <TableRow key={i} className="hover:bg-red-50">
+                                <TableCell className="font-medium text-xs break-all">
+                                  {err.fileName}
+                                </TableCell>
+                                <TableCell className="text-xs text-red-600 font-semibold">
+                                  {err.error}
+                                </TableCell>
+                                <TableCell className="text-xs flex items-center gap-2 text-muted-foreground">
+                                  <HelpCircle className="h-3 w-3" />
+                                  {err.suggestion}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
             </div>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={items.length === 0 || uploadStatus === 'processing'}
-          >
-            <Check className="mr-2 h-4 w-4" />
-            Importar {items.length} Itens
-          </Button>
+        <DialogFooter className="p-6 border-t bg-muted/10">
+          <div className="flex justify-between w-full items-center">
+            <span className="text-xs text-muted-foreground">
+              {items.length} itens prontos para importação.
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleClose}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleConfirm}
+                disabled={items.length === 0 || uploadStatus === 'processing'}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                <Check className="mr-2 h-4 w-4" />
+                Confirmar Importação
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        multiple
+        accept=".xml"
+        onChange={handleFileChange}
+      />
     </Dialog>
   )
 }
