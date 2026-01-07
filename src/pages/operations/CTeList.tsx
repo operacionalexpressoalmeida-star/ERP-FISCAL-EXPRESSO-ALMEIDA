@@ -33,6 +33,8 @@ import {
   Loader2,
   Settings2,
   Paperclip,
+  Star,
+  Search,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
@@ -66,6 +68,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ValidationSettingsDialog } from '@/components/operations/ValidationSettingsDialog'
 import { CteDocumentsDialog } from '@/components/operations/CteDocumentsDialog'
+import { Input } from '@/components/ui/input'
 
 const ITEMS_PER_PAGE = 10
 
@@ -80,6 +83,8 @@ export default function CTeList() {
     checkPendingCtes,
     selectedCompanyId,
     userRole,
+    standardCteId,
+    setStandardCte,
   } = useErpStore()
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -93,6 +98,9 @@ export default function CTeList() {
   const [selectedTab, setSelectedTab] = useState('all')
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isValidating, setIsValidating] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [cteToMakeStandard, setCteToMakeStandard] =
+    useState<Transaction | null>(null)
 
   // Trigger pending check on mount
   useEffect(() => {
@@ -108,8 +116,20 @@ export default function CTeList() {
 
   // Filter based on Tab
   const filteredData = useMemo(() => {
+    let data = transactions
+
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase()
+      data = data.filter(
+        (t) =>
+          t.cteNumber?.toLowerCase().includes(lowerSearch) ||
+          t.accessKey?.toLowerCase().includes(lowerSearch) ||
+          t.description?.toLowerCase().includes(lowerSearch),
+      )
+    }
+
     if (selectedTab === 'pending') {
-      return transactions.filter(
+      return data.filter(
         (t) =>
           t.status === 'pending' ||
           (t.consistencyWarnings && t.consistencyWarnings.length > 0) ||
@@ -117,15 +137,15 @@ export default function CTeList() {
       )
     }
     if (selectedTab === 'processed') {
-      return transactions.filter(
+      return data.filter(
         (t) =>
           t.status === 'approved' &&
           (!t.consistencyWarnings || t.consistencyWarnings.length === 0) &&
           t.sefazStatus !== 'unchecked',
       )
     }
-    return transactions
-  }, [transactions, selectedTab])
+    return data
+  }, [transactions, selectedTab, searchTerm])
 
   const [currentPage, setCurrentPage] = useState(1)
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE)
@@ -221,6 +241,9 @@ export default function CTeList() {
 
   const handleDelete = () => {
     if (transactionToDelete) {
+      if (transactionToDelete.id === standardCteId) {
+        setStandardCte(null)
+      }
       removeTransaction(transactionToDelete.id)
       toast({
         title: 'CT-e Excluído',
@@ -356,6 +379,25 @@ export default function CTeList() {
     }
   }
 
+  const handleSetStandard = () => {
+    if (!cteToMakeStandard) return
+
+    setStandardCte(cteToMakeStandard.id)
+    toast({
+      title: 'Padrão Definido',
+      description: `O CT-e ${cteToMakeStandard.cteNumber} foi definido como padrão do sistema.`,
+    })
+    setCteToMakeStandard(null)
+  }
+
+  const handleUnsetStandard = (id: string) => {
+    setStandardCte(null)
+    toast({
+      title: 'Padrão Removido',
+      description: 'Nenhum CT-e está definido como padrão atualmente.',
+    })
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -403,6 +445,18 @@ export default function CTeList() {
               <Plus className="mr-2 h-4 w-4" /> Nova Emissão
             </Button>
           )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 bg-background p-4 border rounded-lg shadow-sm">
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por número, chave de acesso ou descrição..."
+            className="pl-8"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
       </div>
 
@@ -468,7 +522,7 @@ export default function CTeList() {
                     <TableHead className="text-center">
                       Status Interno
                     </TableHead>
-                    <TableHead className="w-[120px]"></TableHead>
+                    <TableHead className="w-[150px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -477,9 +531,13 @@ export default function CTeList() {
                     const hasWarnings =
                       t.consistencyWarnings && t.consistencyWarnings.length > 0
                     const AlertIcon = alert?.icon
+                    const isStandard = t.id === standardCteId
 
                     return (
-                      <TableRow key={t.id}>
+                      <TableRow
+                        key={t.id}
+                        className={isStandard ? 'bg-blue-50/50' : ''}
+                      >
                         <TableCell>
                           <Checkbox
                             checked={selectedItems.includes(t.id)}
@@ -527,6 +585,14 @@ export default function CTeList() {
                             <div className="flex items-center gap-1">
                               <FileText className="h-3 w-3 text-muted-foreground" />
                               <span>{t.cteNumber}</span>
+                              {isStandard && (
+                                <Badge
+                                  variant="secondary"
+                                  className="h-4 px-1 text-[10px] bg-blue-100 text-blue-700 hover:bg-blue-200 ml-1"
+                                >
+                                  Padrão
+                                </Badge>
+                              )}
                             </div>
                             {t.accessKey && (
                               <span
@@ -585,6 +651,34 @@ export default function CTeList() {
                         </TableCell>
                         <TableCell>
                           <div className="flex justify-end gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    isStandard
+                                      ? handleUnsetStandard(t.id)
+                                      : setCteToMakeStandard(t)
+                                  }
+                                  className={
+                                    isStandard
+                                      ? 'text-yellow-500 hover:text-yellow-600 hover:bg-yellow-50'
+                                      : 'text-muted-foreground hover:text-yellow-500'
+                                  }
+                                >
+                                  <Star
+                                    className={`h-4 w-4 ${isStandard ? 'fill-current' : ''}`}
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {isStandard
+                                  ? 'Remover Padrão'
+                                  : 'Definir como Padrão'}
+                              </TooltipContent>
+                            </Tooltip>
+
                             <Button
                               variant="ghost"
                               size="icon"
@@ -693,6 +787,28 @@ export default function CTeList() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!cteToMakeStandard}
+        onOpenChange={(open) => !open && setCteToMakeStandard(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Definir como Padrão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {standardCteId
+                ? 'Já existe um CT-e definido como padrão. Ao confirmar, o novo registro substituirá o anterior.'
+                : 'Este CT-e será usado como referência para validações e criação de regras.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSetStandard}>
+              Confirmar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

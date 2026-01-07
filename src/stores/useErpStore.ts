@@ -259,6 +259,7 @@ export interface ErpState {
   validationSettings: ValidationSettings
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
+  standardCteId: string | null
 
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
@@ -318,6 +319,7 @@ export interface ErpState {
   updateConditionalRule: (id: string, rule: Partial<ConditionalRule>) => void
   updateValidationSettings: (settings: Partial<ValidationSettings>) => void
   checkPendingCtes: () => void
+  setStandardCte: (id: string | null) => void
   applyCategorizationRules: (
     transaction: Partial<Transaction>,
   ) => Partial<Transaction>
@@ -416,6 +418,7 @@ export const useErpStore = create<ErpState>()(
       currentUser: null,
       selectedCompanyId: 'consolidated',
       userRole: 'admin',
+      standardCteId: null,
       companies: [
         {
           id: 'c1',
@@ -975,6 +978,8 @@ export const useErpStore = create<ErpState>()(
           }
           return {}
         }),
+
+      setStandardCte: (id) => set({ standardCteId: id }),
 
       applyCategorizationRules: (transaction) => {
         const rules = get().categorizationRules

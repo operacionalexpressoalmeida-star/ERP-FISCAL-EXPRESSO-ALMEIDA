@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Pencil } from 'lucide-react'
+import { Plus, Trash2, Pencil, Copy } from 'lucide-react'
 import { useState } from 'react'
 import {
   Dialog,
@@ -61,9 +61,15 @@ export default function ConditionalValidationRules() {
     addConditionalRule,
     removeConditionalRule,
     updateConditionalRule,
+    standardCteId,
+    transactions,
   } = useErpStore()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedRule, setSelectedRule] = useState<ConditionalRule | null>(null)
+
+  const standardCte = standardCteId
+    ? transactions.find((t) => t.id === standardCteId)
+    : null
 
   const form = useForm<z.infer<typeof ruleSchema>>({
     resolver: zodResolver(ruleSchema),
@@ -120,6 +126,24 @@ export default function ConditionalValidationRules() {
   const handleDelete = (id: string) => {
     removeConditionalRule(id)
     toast({ title: 'Regra Removida', variant: 'destructive' })
+  }
+
+  const copyFromStandard = (
+    field: 'conditionValue' | 'ruleValue',
+    sourceField: string,
+  ) => {
+    if (!standardCte) return
+    const value = standardCte[sourceField as keyof typeof standardCte]
+    if (value !== undefined && value !== null) {
+      form.setValue(field, String(value))
+      toast({ title: 'Valor Copiado', description: `Copiado do CT-e Padrão.` })
+    } else {
+      toast({
+        title: 'Campo Vazio',
+        description: 'O CT-e padrão não possui valor neste campo.',
+        variant: 'warning',
+      })
+    }
   }
 
   return (
@@ -298,7 +322,22 @@ export default function ConditionalValidationRules() {
                   name="conditionValue"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Valor</FormLabel>
+                      <FormLabel className="flex justify-between">
+                        Valor
+                        {standardCte && (
+                          <span
+                            className="text-xs text-blue-600 cursor-pointer flex items-center gap-1 hover:underline"
+                            onClick={() =>
+                              copyFromStandard(
+                                'conditionValue',
+                                form.watch('conditionField'),
+                              )
+                            }
+                          >
+                            <Copy className="h-3 w-3" /> Copiar Padrão
+                          </span>
+                        )}
+                      </FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Ex: Substitution" />
                       </FormControl>
@@ -374,7 +413,23 @@ export default function ConditionalValidationRules() {
                   name="ruleValue"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Valor (Opcional)</FormLabel>
+                      <FormLabel className="flex justify-between">
+                        Valor (Opcional)
+                        {standardCte &&
+                          form.watch('ruleType') === 'match_value' && (
+                            <span
+                              className="text-xs text-blue-600 cursor-pointer flex items-center gap-1 hover:underline"
+                              onClick={() =>
+                                copyFromStandard(
+                                  'ruleValue',
+                                  form.watch('targetField'),
+                                )
+                              }
+                            >
+                              <Copy className="h-3 w-3" /> Copiar Padrão
+                            </span>
+                          )}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           {...field}
