@@ -21,9 +21,26 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
   const getValue = (parent: Element | Document, tag: string) =>
     parent.getElementsByTagName(tag)[0]?.textContent || ''
 
-  // Categorization Logic
-  const categorize = (desc: string) => {
+  // Extended Categorization Logic based on Description and CFOP
+  const categorize = (desc: string, cfop: string = '') => {
     const d = desc.toLowerCase()
+
+    // CFOP Based (More precise)
+    if (cfop) {
+      // 5.35X, 6.35X = Transportation Service (Revenue)
+      if (cfop.startsWith('535') || cfop.startsWith('635'))
+        return 'Transport Revenue'
+      // 5.10X, 6.10X = Sales of Goods
+      if (cfop.startsWith('510') || cfop.startsWith('610'))
+        return 'Sales Revenue'
+      // 1.556, 2.556 = Purchase for Usage/Consumption
+      if (cfop.startsWith('1556') || cfop.startsWith('2556')) {
+        if (d.includes('diesel') || d.includes('gasolina')) return 'Fuel'
+        if (d.includes('pneu') || d.includes('peca')) return 'Maintenance'
+      }
+    }
+
+    // Description Based (Fallback)
     if (
       d.includes('diesel') ||
       d.includes('gasolina') ||
@@ -40,6 +57,9 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     )
       return 'Maintenance'
     if (d.includes('pedagio') || d.includes('pedágio')) return 'Tolls'
+    if (d.includes('frete') || d.includes('transporte'))
+      return 'Transport Revenue'
+
     return 'Uncategorized'
   }
 
@@ -64,11 +84,32 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       accessKey = infNFe.getAttribute('Id')?.replace('NFe', '') || ''
     }
 
-    // Extract first product
+    // Extract first product & CFOP
     const det = infNFe.getElementsByTagName('det')[0]
     const prod = det?.getElementsByTagName('prod')[0]
     const xProd = getValue(prod!, 'xProd')
-    const category = categorize(xProd || '')
+    const cfop = getValue(prod!, 'CFOP')
+
+    // Determine type based on CFOP or User Context (simplified assumption)
+    // If it's a purchase (CFOP 1xxx or 2xxx), it's Expense.
+    // If it's a sale (CFOP 5xxx or 6xxx), it's Revenue.
+    // However, the user usually imports what they receive (Expenses) or what they emit (Revenues)
+    // Let's assume: If Issuer matches User Company -> Revenue. If Recipient matches -> Expense.
+    // For now, based on previous logic, we defaulted NF-e to Expense, but user story asks for Revenue categorization too.
+    // We'll stick to 'expense' for generic NF-e unless CFOP clearly indicates revenue (Sales).
+    // Actually, let's treat it as Expense by default unless CFOP is 5xxx/6xxx AND we are the emitter (we don't check emitter here against store).
+    // Let's assume standard behavior: Import = Expense, unless clearly a Service/Transport Revenue.
+
+    let type: 'revenue' | 'expense' = 'expense'
+    if (cfop.startsWith('5') || cfop.startsWith('6')) {
+      // If standard sales CFOP, might be revenue if we are the issuer.
+      // Without checking store 'companies', we can default to 'revenue' if categorization says 'Sales Revenue' or 'Transport Revenue'.
+      // But usually NF-e xml imported by user is an invoice RECEIVED.
+      // Let's keep existing logic but allow categorization to run.
+      type = 'expense'
+    }
+
+    const category = categorize(xProd || '', cfop)
 
     // Fleet Enrichment
     let fuelType, fuelQuantity
@@ -83,7 +124,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     }
 
     return {
-      type: 'expense',
+      type,
       date: dhEmi
         ? dhEmi.split('T')[0]
         : new Date().toISOString().split('T')[0],
@@ -95,6 +136,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       documentNumber: nNF,
       accessKey,
       category,
+      cfop,
       icmsValue: 0,
       pisValue: 0,
       cofinsValue: 0,
@@ -114,6 +156,9 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const ufIni = getValue(ide, 'UFIni')
     const ufFim = getValue(ide, 'UFFim')
 
+    // CFOP for CT-e is often in <ide><CFOP>
+    const cfop = getValue(ide, 'CFOP')
+
     // Parties
     const dest = infCte.getElementsByTagName('dest')[0]
     const cnpjDest = getValue(dest!, 'CNPJ') || getValue(dest!, 'CPF')
@@ -130,8 +175,6 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       const icms = imp.getElementsByTagName('ICMS')[0]
       if (icms) {
         // Look for common tags inside ICMS00, ICMS20, etc.
-        // We search for any tag ending in 'vICMS' that is direct child of a CST group
-        // A simple approach is searching for 'vICMS' in the subtree of 'ICMS'
         const vICMS = icms.getElementsByTagName('vICMS')[0]
         if (vICMS) {
           icmsValue = parseFloat(vICMS.textContent || '0')
@@ -150,6 +193,8 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       ? xObs.slice(0, 50)
       : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
 
+    const category = categorize(description, cfop)
+
     return {
       type: 'revenue',
       date: dhEmi
@@ -165,6 +210,8 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       providerCnpj: cnpjEmit,
       providerName: xNomeEmit,
       accessKey,
+      category: category === 'Uncategorized' ? 'Transport Revenue' : category, // Default for CT-e
+      cfop,
       icmsValue,
       pisValue: 0,
       cofinsValue: 0,

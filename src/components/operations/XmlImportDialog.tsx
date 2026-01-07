@@ -21,6 +21,7 @@ import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
 import { formatCurrency } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from '@/hooks/use-toast'
+import { Badge } from '@/components/ui/badge'
 
 interface XmlImportDialogProps {
   open: boolean
@@ -107,11 +108,12 @@ export function XmlImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Importar XML (NF-e, NFS-e, CT-e)</DialogTitle>
           <DialogDescription>
-            Carregue arquivos XML para extração automática de dados fiscais.
+            Carregue arquivos XML para extração automática e categorização
+            inteligente.
           </DialogDescription>
         </DialogHeader>
 
@@ -183,7 +185,8 @@ export function XmlImportDialog({
                       <TableHead>Data</TableHead>
                       <TableHead>Número / Chave</TableHead>
                       <TableHead>Tipo</TableHead>
-                      <TableHead>Parceiro</TableHead>
+                      <TableHead>Categoria (Auto)</TableHead>
+                      <TableHead>CFOP</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
@@ -211,10 +214,16 @@ export function XmlImportDialog({
                         <TableCell className="text-xs">
                           {item.type === 'expense' ? 'Despesa' : 'Receita'}
                         </TableCell>
-                        <TableCell className="text-xs truncate max-w-[120px]">
-                          {item.type === 'revenue'
-                            ? item.takerName || item.recipientCnpj
-                            : item.providerName || item.providerCnpj}
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="text-xs font-normal bg-blue-50 text-blue-700 border-blue-200"
+                          >
+                            {item.category || 'Uncategorized'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {item.cfop || '-'}
                         </TableCell>
                         <TableCell
                           className="max-w-[180px] truncate text-xs"

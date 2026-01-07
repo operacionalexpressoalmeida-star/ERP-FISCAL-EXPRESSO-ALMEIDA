@@ -19,6 +19,7 @@ import AssetList from './pages/assets/AssetList'
 import BankReconciliation from './pages/financial/BankReconciliation'
 import TaxReports from './pages/reports/TaxReports'
 import CustomDashboard from './pages/reports/CustomDashboard'
+import RevenueAnalytics from './pages/reports/RevenueAnalytics'
 import ApprovalsPage from './pages/admin/ApprovalsPage'
 import ContractList from './pages/contracts/ContractList'
 import IntegrationCenter from './pages/admin/IntegrationCenter'
@@ -50,6 +51,10 @@ const App = () => (
           <Route
             path="/reports/custom-dashboard"
             element={<CustomDashboard />}
+          />
+          <Route
+            path="/reports/revenue-analytics"
+            element={<RevenueAnalytics />}
           />
           <Route path="/admin/approvals" element={<ApprovalsPage />} />
           <Route path="/admin/integrations" element={<IntegrationCenter />} />

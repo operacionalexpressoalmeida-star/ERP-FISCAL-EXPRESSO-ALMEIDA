@@ -28,6 +28,7 @@ import {
   FileText,
   Network,
   FileSignature,
+  TrendingUp,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -216,6 +217,19 @@ export function AppSidebar() {
           <SidebarGroupLabel>Relatórios</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith(
+                    '/reports/revenue-analytics',
+                  )}
+                >
+                  <Link to="/reports/revenue-analytics">
+                    <TrendingUp />
+                    <span>Análise de Receita</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

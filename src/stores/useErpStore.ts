@@ -129,6 +129,7 @@ export interface Transaction {
   cteNumber?: string
   accessKey?: string
   category?: string
+  cfop?: string
   isDeductibleIrpjCsll?: boolean
   hasCreditPisCofins?: boolean
   hasCreditIcms?: boolean
