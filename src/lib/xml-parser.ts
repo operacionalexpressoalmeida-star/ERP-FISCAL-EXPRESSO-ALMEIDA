@@ -170,6 +170,13 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
     const category = categorize(description, cfop)
 
+    // Try to extract freight info (mock logic as usually it's not in standard CT-e XML explicitly like this, but simulating reading from Obs)
+    let freightId = ''
+    if (xObs && xObs.includes('Ref:')) {
+      const match = xObs.match(/Ref:\s*([A-Z0-9]+)/)
+      if (match) freightId = match[1]
+    }
+
     return {
       type: 'revenue',
       date: dhEmi
@@ -190,6 +197,8 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       icmsValue,
       pisValue: 0,
       cofinsValue: 0,
+      freightId,
+      freightStatus: freightId ? 'In Transit' : undefined,
     }
   }
 
@@ -203,7 +212,6 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       xmlDoc.getElementsByTagName('Discriminacao')[0]?.textContent || ''
     const numero = xmlDoc.getElementsByTagName('Numero')[0]?.textContent || ''
 
-    // Minimal validation
     if (!numero) throw new Error('Número da NFS-e não encontrado.')
 
     const tomador = xmlDoc.getElementsByTagName('Tomador')[0]

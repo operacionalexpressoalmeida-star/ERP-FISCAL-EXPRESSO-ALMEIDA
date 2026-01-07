@@ -27,12 +27,15 @@ export default function Layout() {
     setContext,
     userRole,
     checkCertificatesExpiry,
+    checkPendingCtes,
   } = useErpStore()
 
   useEffect(() => {
     // Check for expiring certificates on component mount
     checkCertificatesExpiry()
-  }, [checkCertificatesExpiry])
+    // Check for pending CT-es
+    checkPendingCtes()
+  }, [checkCertificatesExpiry, checkPendingCtes])
 
   const RoleIcon =
     userRole === 'admin'

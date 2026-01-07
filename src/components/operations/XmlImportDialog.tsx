@@ -26,6 +26,7 @@ import {
   AlertOctagon,
   XCircle,
   HelpCircle,
+  Download,
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
@@ -42,6 +43,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { validateCte } from '@/lib/tax-utils'
 
 interface XmlImportDialogProps {
   open: boolean
@@ -62,7 +64,7 @@ export function XmlImportDialog({
   onOpenChange,
   onConfirm,
 }: XmlImportDialogProps) {
-  const { companies, transactions } = useErpStore()
+  const { companies, transactions, validationSettings } = useErpStore()
   const [items, setItems] = useState<ParsedFiscalDoc[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle')
   const [progress, setProgress] = useState(0)
@@ -103,11 +105,10 @@ export function XmlImportDialog({
       setItems([])
     }
 
-    const CHUNK_SIZE = 10 // Reduced chunk size for UI responsiveness
+    const CHUNK_SIZE = 10
     const newItems: ParsedFiscalDoc[] = []
     const newErrors: ErrorItem[] = []
 
-    // Helper to process a chunk of files
     const processChunk = async (chunk: File[]) => {
       const results = await Promise.all(
         chunk.map(async (file) => {
@@ -118,13 +119,11 @@ export function XmlImportDialog({
 
             const item = await parseFiscalXml(file)
 
-            // Duplicate Check
             const key = item.accessKey || item.cteNumber
             if (key && existingKeys.has(key)) {
               throw new Error('Documento duplicado (já registrado no sistema).')
             }
 
-            // Schema/Mandatory Fields Validation
             if (!item.cteNumber && !item.documentNumber) {
               throw new Error('Número do documento não encontrado no XML.')
             }
@@ -162,7 +161,6 @@ export function XmlImportDialog({
       return results
     }
 
-    // Iterate through chunks
     let currentProcessedLocal = 0
 
     for (let i = 0; i < files.length; i += CHUNK_SIZE) {
@@ -186,7 +184,6 @@ export function XmlImportDialog({
       currentProcessedLocal += chunk.length
       setProcessedCount((prev) => prev + chunk.length)
 
-      // Yield to main thread
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
 
@@ -201,7 +198,6 @@ export function XmlImportDialog({
     }
   }
 
-  // Effect to update progress percentage
   useEffect(() => {
     if (totalFiles > 0) {
       setProgress(Math.round((processedCount / totalFiles) * 100))
@@ -221,7 +217,6 @@ export function XmlImportDialog({
       })
       return
     }
-    // Append logic: if items exist, append new files to current batch
     const append = items.length > 0 || errorLog.length > 0
     processFiles(files, append)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -268,7 +263,6 @@ export function XmlImportDialog({
   const validateConsistency = (item: ParsedFiscalDoc) => {
     const warnings: string[] = []
 
-    // Check if issuer is known (for revenue)
     if (item.type === 'revenue' && item.providerCnpj) {
       const knownIssuer = companies.some((c) => {
         const cCnpj = c.cnpj.replace(/\D/g, '')
@@ -280,22 +274,36 @@ export function XmlImportDialog({
       }
     }
 
-    if (item.value > 100000) {
-      warnings.push('Valor elevado (> R$ 100k). Requer atenção.')
+    // Use shared validation logic which respects dynamic settings
+    const result = validateCte(item, validationSettings)
+    if (!result.isValid) {
+      // If critical errors, we treat them as warnings here to allow import as pending,
+      // but strictly we should probably block import or mark as error.
+      // For now, push errors to warnings list so it becomes Pending.
+      result.errors.forEach((e) => warnings.push(`[ERRO] ${e}`))
     }
-
-    if (!item.cfop) {
-      warnings.push('CFOP não identificado.')
-    }
-
-    if (item.origin && item.origin.length !== 2) {
-      warnings.push('Sigla de origem inválida.')
-    }
+    result.warnings.forEach((w) => warnings.push(w))
 
     item.consistencyWarnings = warnings
     if (warnings.length > 0) {
       item.status = 'pending'
     }
+  }
+
+  const handleDownloadLog = () => {
+    if (errorLog.length === 0) return
+    const content =
+      'Arquivo;Erro;Sugestão\n' +
+      errorLog.map((e) => `${e.fileName};${e.error};${e.suggestion}`).join('\n')
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'error_log.csv')
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   const handleConfirm = () => {
@@ -543,7 +551,14 @@ export function XmlImportDialog({
                         <AlertTitle>Arquivos Falharam</AlertTitle>
                         <AlertDescription>
                           {errorLog.length} arquivos não puderam ser
-                          processados. Veja detalhes abaixo.
+                          processados.
+                          <Button
+                            variant="link"
+                            className="text-white underline p-0 h-auto ml-2"
+                            onClick={handleDownloadLog}
+                          >
+                            <Download className="mr-1 h-3 w-3" /> Baixar Log
+                          </Button>
                         </AlertDescription>
                       </Alert>
 

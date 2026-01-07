@@ -31,9 +31,11 @@ import {
   AlertOctagon,
   CheckCircle,
   Loader2,
+  Settings2,
+  Paperclip,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
@@ -62,6 +64,8 @@ import {
 import { calculateCteTaxes } from '@/lib/tax-utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ValidationSettingsDialog } from '@/components/operations/ValidationSettingsDialog'
+import { CteDocumentsDialog } from '@/components/operations/CteDocumentsDialog'
 
 const ITEMS_PER_PAGE = 10
 
@@ -73,11 +77,15 @@ export default function CTeList() {
     updateTransaction,
     removeTransaction,
     validateTransactionsWithSefaz,
+    checkPendingCtes,
     selectedCompanyId,
     userRole,
   } = useErpStore()
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isValidationSettingsOpen, setIsValidationSettingsOpen] =
+    useState(false)
+  const [isDocumentsOpen, setIsDocumentsOpen] = useState(false)
   const [transactionToEdit, setTransactionToEdit] =
     useState<Transaction | null>(null)
   const [transactionToDelete, setTransactionToDelete] =
@@ -85,6 +93,11 @@ export default function CTeList() {
   const [selectedTab, setSelectedTab] = useState('all')
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isValidating, setIsValidating] = useState(false)
+
+  // Trigger pending check on mount
+  useEffect(() => {
+    checkPendingCtes()
+  }, [checkPendingCtes])
 
   const allTransactions = getFilteredTransactions()
   // Filter for Revenue CT-e
@@ -159,8 +172,6 @@ export default function CTeList() {
         finalItem = { ...finalItem, ...taxes }
       }
 
-      // If imported via Dialog, status logic is handled there (pending if warnings)
-      // but ensure we pass it correctly
       newTransactions.push({
         ...finalItem,
         companyId:
@@ -184,12 +195,11 @@ export default function CTeList() {
 
   const handleManualSave = (data: CteFormData) => {
     if (transactionToEdit) {
-      // If editing, assume regularization if it was pending
       updateTransaction(transactionToEdit.id, {
         ...data,
         type: 'revenue',
-        status: 'approved', // Resolve pending status
-        consistencyWarnings: [], // Clear warnings after manual edit
+        status: 'approved',
+        consistencyWarnings: [],
       })
       toast({
         title: 'CT-e Atualizado',
@@ -267,6 +277,11 @@ export default function CTeList() {
   const openEditDialog = (t: Transaction) => {
     setTransactionToEdit(t)
     setIsFormOpen(true)
+  }
+
+  const openDocumentsDialog = (t: Transaction) => {
+    setTransactionToEdit(t)
+    setIsDocumentsOpen(true)
   }
 
   const openNewDialog = () => {
@@ -367,6 +382,14 @@ export default function CTeList() {
               Validar SEFAZ ({selectedItems.length})
             </Button>
           )}
+          {userRole === 'admin' && (
+            <Button
+              variant="outline"
+              onClick={() => setIsValidationSettingsOpen(true)}
+            >
+              <Settings2 className="mr-2 h-4 w-4" /> Configurar Validações
+            </Button>
+          )}
           <Button variant="outline" asChild>
             <Link to="/reports/cte-tax">
               <FileBarChart className="mr-2 h-4 w-4" /> Relatório Fiscal
@@ -439,12 +462,13 @@ export default function CTeList() {
                     <TableHead>Data</TableHead>
                     <TableHead>Número</TableHead>
                     <TableHead>Origem / Destino</TableHead>
+                    <TableHead>Frete (ID/Status)</TableHead>
                     <TableHead>Autenticidade SEFAZ</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead className="text-center">
                       Status Interno
                     </TableHead>
-                    <TableHead className="w-[100px]"></TableHead>
+                    <TableHead className="w-[120px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -527,6 +551,20 @@ export default function CTeList() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
+                        <TableCell>
+                          {t.freightId ? (
+                            <div className="flex flex-col text-xs">
+                              <span className="font-medium">{t.freightId}</span>
+                              <span className="text-muted-foreground">
+                                {t.freightStatus || 'Unknown'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              Não vinculado
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>{getSefazBadge(t.sefazStatus)}</TableCell>
                         <TableCell className="text-right font-bold text-emerald-600">
                           {formatCurrency(t.value)}
@@ -547,13 +585,21 @@ export default function CTeList() {
                         </TableCell>
                         <TableCell>
                           <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openDocumentsDialog(t)}
+                              title="Documentos"
+                            >
+                              <Paperclip className="h-4 w-4 text-blue-600" />
+                            </Button>
                             {t.status === 'pending' && userRole === 'admin' ? (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => openEditDialog(t)}
                                 title="Regularizar / Editar"
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                               >
                                 <CheckCircle className="h-4 w-4" />
                               </Button>
@@ -586,7 +632,7 @@ export default function CTeList() {
                   {currentData.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={10}
                         className="text-center h-24 text-muted-foreground"
                       >
                         Nenhum registro encontrado nesta visão.
@@ -616,6 +662,17 @@ export default function CTeList() {
         onOpenChange={setIsFormOpen}
         initialData={transactionToEdit}
         onSave={handleManualSave}
+      />
+
+      <ValidationSettingsDialog
+        open={isValidationSettingsOpen}
+        onOpenChange={setIsValidationSettingsOpen}
+      />
+
+      <CteDocumentsDialog
+        open={isDocumentsOpen}
+        onOpenChange={setIsDocumentsOpen}
+        transaction={transactionToEdit}
       />
 
       <AlertDialog

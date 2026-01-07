@@ -30,7 +30,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useErpStore } from '@/stores/useErpStore'
 import { Separator } from '@/components/ui/separator'
 import { calculateCteTaxes, validateCte } from '@/lib/tax-utils'
-import { AlertTriangle, Calculator } from 'lucide-react'
+import { AlertTriangle, Calculator, Truck } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CteProfitabilityTab } from '@/components/operations/CteProfitabilityTab'
@@ -50,6 +50,8 @@ const cteSchema = z.object({
   pisValue: z.coerce.number().min(0),
   cofinsValue: z.coerce.number().min(0),
   category: z.string().optional(),
+  // New Field
+  freightId: z.string().optional(),
 })
 
 export type CteFormData = z.infer<typeof cteSchema>
@@ -67,7 +69,8 @@ export function CteFormDialog({
   initialData,
   onSave,
 }: CteFormDialogProps) {
-  const { companies, selectedCompanyId, transactions } = useErpStore()
+  const { companies, selectedCompanyId, transactions, validationSettings } =
+    useErpStore()
   const [activeTab, setActiveTab] = useState('details')
 
   // Linked Expenses
@@ -102,6 +105,7 @@ export function CteFormDialog({
       pisValue: 0,
       cofinsValue: 0,
       category: 'Transport Revenue',
+      freightId: '',
     },
   })
 
@@ -124,6 +128,7 @@ export function CteFormDialog({
           pisValue: initialData.pisValue || 0,
           cofinsValue: initialData.cofinsValue || 0,
           category: initialData.category || 'Transport Revenue',
+          freightId: initialData.freightId || '',
         })
       } else {
         form.reset({
@@ -142,19 +147,18 @@ export function CteFormDialog({
           pisValue: 0,
           cofinsValue: 0,
           category: 'Transport Revenue',
+          freightId: '',
         })
       }
     }
   }, [open, initialData, form, selectedCompanyId])
 
   // Watch values for validation and tax calculation
-  // We use useWatch instead of form.watch() for specific fields to avoid re-rendering on every single change of any field
   const valuesForValidation = useWatch({ control: form.control })
 
-  // Derived state for validation - runs on render, no state update loop
-  const validation = validateCte(valuesForValidation)
+  // Validate with settings
+  const validation = validateCte(valuesForValidation, validationSettings)
 
-  // Watch specific fields for auto tax calculation
   const origin = useWatch({ control: form.control, name: 'origin' })
   const destination = useWatch({ control: form.control, name: 'destination' })
   const value = useWatch({ control: form.control, name: 'value' })
@@ -169,9 +173,6 @@ export function CteFormDialog({
       destination.length === 2
     ) {
       const taxes = calculateCteTaxes(value, origin, destination)
-
-      // We only update if values are different to avoid potential cycles,
-      // although setValue shouldn't trigger this effect as it depends on origin/dest/value
       const currentValues = form.getValues()
       if (
         currentValues.icmsValue !== taxes.icmsValue ||
@@ -235,18 +236,31 @@ export function CteFormDialog({
                 className="space-y-6 pt-4"
               >
                 {/* Validation Alerts */}
-                {validation.warnings.length > 0 && (
+                {(validation.warnings.length > 0 ||
+                  validation.errors.length > 0) && (
                   <Alert
-                    variant="default"
-                    className="bg-amber-50 border-amber-200 text-amber-800"
+                    variant={
+                      validation.errors.length > 0 ? 'destructive' : 'default'
+                    }
+                    className={
+                      validation.errors.length > 0
+                        ? ''
+                        : 'bg-amber-50 border-amber-200 text-amber-800'
+                    }
                   >
                     <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Atenção</AlertTitle>
+                    <AlertTitle>
+                      {validation.errors.length > 0
+                        ? 'Erros Bloqueantes'
+                        : 'Avisos de Validação'}
+                    </AlertTitle>
                     <AlertDescription>
                       <ul className="list-disc pl-4 text-xs">
-                        {validation.warnings.map((w, i) => (
-                          <li key={i}>{w}</li>
-                        ))}
+                        {[...validation.errors, ...validation.warnings].map(
+                          (w, i) => (
+                            <li key={i}>{w}</li>
+                          ),
+                        )}
                       </ul>
                     </AlertDescription>
                   </Alert>
@@ -408,6 +422,42 @@ export function CteFormDialog({
                   />
                 </div>
 
+                {/* Freight & CFOP */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="freightId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <Truck className="h-3 w-3 text-muted-foreground" /> ID
+                          da Carga (Opcional)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Ex: REF-123 (Vínculo Logístico)"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="cfop"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CFOP</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Ex: 5352" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <Separator />
 
                 {/* Values & Taxes */}
@@ -427,28 +477,20 @@ export function CteFormDialog({
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <FormField
                       control={form.control}
                       name="value"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Valor Total</FormLabel>
+                          <FormLabel>Valor Total do Serviço</FormLabel>
                           <FormControl>
-                            <Input type="number" step="0.01" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="cfop"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>CFOP</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="Ex: 5352" />
+                            <Input
+                              type="number"
+                              step="0.01"
+                              {...field}
+                              className="text-lg font-bold"
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -507,7 +549,16 @@ export function CteFormDialog({
                   >
                     Cancelar
                   </Button>
-                  <Button type="submit">Salvar CT-e</Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      validation.errors.length > 0 &&
+                      (validationSettings.blockInvalidCfop ||
+                        validationSettings.blockInvalidStates)
+                    }
+                  >
+                    Salvar CT-e
+                  </Button>
                 </DialogFooter>
               </form>
             </Form>

@@ -133,6 +133,14 @@ export interface CategorizationRule {
   targetCategory: string
 }
 
+export interface TransactionDocument {
+  id: string
+  name: string
+  url: string
+  type: string
+  uploadedAt: string
+}
+
 export interface Transaction {
   id: string
   companyId: string
@@ -182,6 +190,10 @@ export interface Transaction {
   attachmentCloudStorage?: boolean
   providerCnpj?: string
   recipientCnpj?: string
+  // New Fields
+  freightId?: string
+  freightStatus?: 'Planned' | 'In Transit' | 'Delivered' | 'Cancelled'
+  documents?: TransactionDocument[]
 }
 
 export interface LalurEntry {
@@ -191,6 +203,14 @@ export interface LalurEntry {
   description: string
   date: string
   value: number
+}
+
+export interface ValidationSettings {
+  blockInvalidCfop: boolean
+  blockInvalidStates: boolean
+  maxValueThreshold: number
+  requireFreightId: boolean
+  pendingLimitHours: number
 }
 
 export interface ErpState {
@@ -208,6 +228,7 @@ export interface ErpState {
   certificates: Certificate[]
   integrationLogs: IntegrationLog[]
   categorizationRules: CategorizationRule[]
+  validationSettings: ValidationSettings
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
@@ -264,6 +285,8 @@ export interface ErpState {
     id: string,
     rule: Partial<CategorizationRule>,
   ) => void
+  updateValidationSettings: (settings: Partial<ValidationSettings>) => void
+  checkPendingCtes: () => void
   applyCategorizationRules: (
     transaction: Partial<Transaction>,
   ) => Partial<Transaction>
@@ -293,6 +316,7 @@ const processTransactionLogic = (
     sefazStatus: transaction.sefazStatus || 'unchecked',
     consistencyWarnings: transaction.consistencyWarnings || [],
     attachmentCloudStorage: !!transaction.attachmentUrl,
+    documents: transaction.documents || [],
   } as Transaction
 
   // Apply Categorization Rules
@@ -399,6 +423,13 @@ export const useErpStore = create<ErpState>()(
       certificates: [],
       integrationLogs: [],
       categorizationRules: [],
+      validationSettings: {
+        blockInvalidCfop: true,
+        blockInvalidStates: true,
+        maxValueThreshold: 50000,
+        requireFreightId: false,
+        pendingLimitHours: 48,
+      },
 
       login: async (email, password) => {
         return new Promise((resolve) => {
@@ -413,6 +444,15 @@ export const useErpStore = create<ErpState>()(
                   role: 'admin',
                   avatar:
                     'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=admin',
+                }
+              } else if (email === 'operador@expressoalmeida.com') {
+                user = {
+                  id: 'u2',
+                  name: 'Operador',
+                  email,
+                  role: 'operator',
+                  avatar:
+                    'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=operator',
                 }
               }
               if (user) {
@@ -564,12 +604,10 @@ export const useErpStore = create<ErpState>()(
         })),
 
       validateTransactionsWithSefaz: async (ids) => {
-        // Mock SEFAZ Validation
         await new Promise((resolve) => setTimeout(resolve, 1500))
         set((state) => ({
           transactions: state.transactions.map((t) => {
             if (ids.includes(t.id)) {
-              // Randomly assign a status for simulation purposes
               const statuses: SefazStatus[] = [
                 'authorized',
                 'authorized',
@@ -796,7 +834,6 @@ export const useErpStore = create<ErpState>()(
         }),
 
       syncSefazExpenses: async (targetCnpj) => {
-        // Mock sync
         await new Promise((resolve) => setTimeout(resolve, 1000))
         return 0
       },
@@ -843,6 +880,47 @@ export const useErpStore = create<ErpState>()(
             r.id === id ? { ...r, ...rule } : r,
           ),
         })),
+
+      updateValidationSettings: (settings) =>
+        set((state) => ({
+          validationSettings: { ...state.validationSettings, ...settings },
+        })),
+
+      checkPendingCtes: () =>
+        set((state) => {
+          const limitHours = state.validationSettings.pendingLimitHours || 48
+          const now = new Date()
+          const newNotifications: Notification[] = []
+
+          state.transactions.forEach((t) => {
+            if (t.status === 'pending') {
+              const date = new Date(t.date)
+              const diffTime = Math.abs(now.getTime() - date.getTime())
+              const diffHours = Math.ceil(diffTime / (1000 * 60 * 60))
+
+              if (diffHours > limitHours) {
+                const alertId = `pending-cte-${t.id}`
+                if (!state.notifications.some((n) => n.id === alertId)) {
+                  newNotifications.push({
+                    id: alertId,
+                    title: 'CT-e Pendente Expirado',
+                    message: `O CT-e ${t.cteNumber} está pendente há mais de ${limitHours} horas.`,
+                    type: 'error',
+                    date: new Date().toISOString(),
+                    read: false,
+                  })
+                }
+              }
+            }
+          })
+
+          if (newNotifications.length > 0) {
+            return {
+              notifications: [...newNotifications, ...state.notifications],
+            }
+          }
+          return {}
+        }),
 
       applyCategorizationRules: (transaction) => {
         const rules = get().categorizationRules

@@ -1,4 +1,4 @@
-import { Transaction } from '@/stores/useErpStore'
+import { Transaction, ValidationSettings } from '@/stores/useErpStore'
 
 export const STATES = [
   'AC',
@@ -76,7 +76,10 @@ export interface ValidationResult {
   warnings: string[]
 }
 
-export function validateCte(data: Partial<Transaction>): ValidationResult {
+export function validateCte(
+  data: Partial<Transaction>,
+  settings?: ValidationSettings,
+): ValidationResult {
   const errors: string[] = []
   const warnings: string[] = []
 
@@ -85,25 +88,46 @@ export function validateCte(data: Partial<Transaction>): ValidationResult {
     errors.push('Valor deve ser maior que zero.')
   if (!data.origin) errors.push('Origem é obrigatória.')
   if (!data.destination) errors.push('Destino é obrigatório.')
-  if (data.origin && !STATES.includes(data.origin))
-    errors.push('Estado de origem inválido.')
-  if (data.destination && !STATES.includes(data.destination))
-    errors.push('Estado de destino inválido.')
+
+  if (settings?.blockInvalidStates) {
+    if (data.origin && !STATES.includes(data.origin))
+      errors.push('Estado de origem inválido.')
+    if (data.destination && !STATES.includes(data.destination))
+      errors.push('Estado de destino inválido.')
+  } else {
+    if (data.origin && !STATES.includes(data.origin))
+      warnings.push('Estado de origem inválido.')
+    if (data.destination && !STATES.includes(data.destination))
+      warnings.push('Estado de destino inválido.')
+  }
 
   if (data.cfop && data.origin && data.destination) {
     const isInternal = data.origin === data.destination
     const firstDigit = data.cfop.charAt(0)
 
     if (isInternal && firstDigit !== '5') {
-      warnings.push(
-        `Operação interna (${data.origin}->${data.destination}) geralmente usa CFOP iniciado em 5.`,
-      )
+      const msg = `Operação interna (${data.origin}->${data.destination}) geralmente usa CFOP iniciado em 5.`
+      if (settings?.blockInvalidCfop) errors.push(msg)
+      else warnings.push(msg)
     }
     if (!isInternal && firstDigit !== '6') {
-      warnings.push(
-        `Operação interestadual (${data.origin}->${data.destination}) geralmente usa CFOP iniciado em 6.`,
-      )
+      const msg = `Operação interestadual (${data.origin}->${data.destination}) geralmente usa CFOP iniciado em 6.`
+      if (settings?.blockInvalidCfop) errors.push(msg)
+      else warnings.push(msg)
     }
+  }
+
+  if (
+    settings?.maxValueThreshold &&
+    (data.value || 0) > settings.maxValueThreshold
+  ) {
+    warnings.push(
+      `Valor acima do limite configurado (${settings.maxValueThreshold}).`,
+    )
+  }
+
+  if (settings?.requireFreightId && !data.freightId) {
+    warnings.push('ID de Frete é requerido pela configuração.')
   }
 
   if (data.type === 'revenue' && !data.category) {
