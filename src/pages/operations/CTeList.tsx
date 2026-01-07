@@ -63,6 +63,7 @@ export default function CTeList() {
   const {
     getFilteredTransactions,
     addTransaction,
+    addTransactions,
     updateTransaction,
     removeTransaction,
     selectedCompanyId,
@@ -75,10 +76,6 @@ export default function CTeList() {
   const [transactionToDelete, setTransactionToDelete] =
     useState<Transaction | null>(null)
 
-  // Use memo to prevent re-calculating transactions on every render unless filtered transactions changes
-  // getFilteredTransactions returns a new array every time it's called, so we should check its contents or assume useErpStore triggers render only when needed
-  // Since we are inside the component render, we just call it. But wrapping in useMemo is safer.
-  // Note: getFilteredTransactions() output changes only when store changes.
   const allTransactions = getFilteredTransactions()
   const transactions = useMemo(
     () => allTransactions.filter((t) => t.type === 'revenue' && t.cteNumber),
@@ -98,11 +95,12 @@ export default function CTeList() {
   )
 
   const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
-    let addedCount = 0
     let duplicateCount = 0
     const existingKeys = new Set(
       transactions.map((t) => t.accessKey || t.cteNumber),
     )
+
+    const newTransactions: any[] = []
 
     items.forEach((item) => {
       const isDuplicate = item.accessKey
@@ -114,7 +112,6 @@ export default function CTeList() {
         return
       }
 
-      // Auto-calc taxes if missing during import
       let finalItem = { ...item }
       if (
         finalItem.origin &&
@@ -130,28 +127,22 @@ export default function CTeList() {
         finalItem = { ...finalItem, ...taxes }
       }
 
-      addTransaction({
+      newTransactions.push({
         ...finalItem,
         companyId:
-          selectedCompanyId === 'consolidated'
-            ? 'c1' // Default to Matrix if consolidated
-            : selectedCompanyId,
-        status: 'approved', // Auto-approve imported revenues
+          selectedCompanyId === 'consolidated' ? 'c1' : selectedCompanyId,
+        status: 'approved' as const,
       })
-      addedCount++
     })
 
-    if (addedCount > 0) {
-      toast({
-        title: 'Importação Concluída',
-        description: `${addedCount} novos CT-es registrados com sucesso. Regras de categorização aplicadas.`,
-      })
+    if (newTransactions.length > 0) {
+      addTransactions(newTransactions)
     }
 
     if (duplicateCount > 0) {
       toast({
-        title: 'Duplicidades Encontradas',
-        description: `${duplicateCount} documentos já existiam e foram ignorados.`,
+        title: 'Duplicidades Ignoradas',
+        description: `${duplicateCount} documentos já existiam e não foram importados.`,
         variant: 'warning',
       })
     }
@@ -168,7 +159,7 @@ export default function CTeList() {
       addTransaction({
         ...data,
         type: 'revenue',
-        status: 'approved', // Manual entry is approved by default
+        status: 'approved',
       })
       toast({
         title: 'CT-e Registrado',
@@ -200,14 +191,12 @@ export default function CTeList() {
     setIsFormOpen(true)
   }
 
-  // Alert Logic Helper
   const getAlertStatus = (t: Transaction) => {
     const today = new Date()
     const docDate = new Date(t.date)
     const diffTime = Math.abs(today.getTime() - docDate.getTime())
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
 
-    // Mock validation issues
     if (!t.accessKey) {
       return {
         type: 'error',
@@ -217,7 +206,6 @@ export default function CTeList() {
       }
     }
 
-    // Pending Alert
     if (t.status === 'pending') {
       if (diffDays > 30) {
         return {
@@ -246,7 +234,7 @@ export default function CTeList() {
             Conhecimentos de Transporte (CT-e)
           </h1>
           <p className="text-muted-foreground">
-            Gestão de emissões fiscais e alertas operacionais.
+            Gestão de emissões fiscais e importação em massa.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
