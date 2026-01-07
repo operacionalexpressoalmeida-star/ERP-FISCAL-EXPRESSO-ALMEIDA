@@ -85,6 +85,23 @@ export function validateCte(
   settings?: ValidationSettings,
   conditionalRules?: ConditionalRule[],
 ): ValidationResult {
+  // Check bypass and global disable
+  if (data.validationBypassed) {
+    return {
+      isValid: true,
+      errors: [],
+      warnings: ['Validação removida manualmente.'],
+    }
+  }
+
+  if (settings?.disableGlobalValidation) {
+    return {
+      isValid: true,
+      errors: [],
+      warnings: ['Validação global desativada.'],
+    }
+  }
+
   const errors: string[] = []
   const warnings: string[] = []
 

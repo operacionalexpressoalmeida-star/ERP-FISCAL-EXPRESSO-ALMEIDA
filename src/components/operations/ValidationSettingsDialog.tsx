@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input'
 import { useErpStore } from '@/stores/useErpStore'
 import { useState, useEffect } from 'react'
 import { toast } from '@/hooks/use-toast'
+import { ShieldOff } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface ValidationSettingsDialogProps {
   open: boolean
@@ -45,6 +47,33 @@ export function ValidationSettingsDialog({
           <DialogTitle>Configurações de Validação (CT-e)</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
+          <div className="flex items-center justify-between space-x-2 border p-3 rounded-md bg-amber-50 border-amber-200">
+            <Label
+              htmlFor="disableGlobal"
+              className="flex flex-col gap-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-2 text-amber-900 font-semibold">
+                <ShieldOff className="h-4 w-4" />
+                Desativar Validação Global
+              </div>
+              <span className="font-normal text-xs text-amber-700">
+                Pula todas as validações automáticas de XML.
+                <br />
+                <strong>Cuidado:</strong> Documentos inválidos serão aceitos.
+              </span>
+            </Label>
+            <Switch
+              id="disableGlobal"
+              checked={localSettings.disableGlobalValidation}
+              onCheckedChange={(c) =>
+                setLocalSettings({
+                  ...localSettings,
+                  disableGlobalValidation: c,
+                })
+              }
+            />
+          </div>
+
           <div className="flex items-center justify-between space-x-2">
             <Label htmlFor="blockCfop" className="flex flex-col gap-1">
               <span>Bloquear CFOP Inválido</span>

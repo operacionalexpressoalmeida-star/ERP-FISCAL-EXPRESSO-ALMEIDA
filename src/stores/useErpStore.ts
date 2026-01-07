@@ -230,6 +230,7 @@ export interface Transaction {
   pendencyHistory?: PendencyLog[]
   cteType?: 'Normal' | 'Complementary' | 'Substitution'
   originalCteKey?: string
+  validationBypassed?: boolean
 }
 
 export interface LalurEntry {
@@ -247,6 +248,7 @@ export interface ValidationSettings {
   maxValueThreshold: number
   requireFreightId: boolean
   pendingLimitHours: number
+  disableGlobalValidation?: boolean
 }
 
 export interface ErpState {
@@ -294,6 +296,7 @@ export interface ErpState {
     data: Partial<Omit<Transaction, 'id'>>,
   ) => void
   removeTransaction: (id: string) => void
+  bypassTransactionValidation: (ids: string[]) => void
   validateTransactionsWithSefaz: (ids: string[]) => Promise<void>
   clearExpenses: () => void
   addLalurEntry: (entry: Omit<LalurEntry, 'id'>) => void
@@ -480,6 +483,7 @@ export const useErpStore = create<ErpState>()(
         maxValueThreshold: 50000,
         requireFreightId: false,
         pendingLimitHours: 48,
+        disableGlobalValidation: false,
       },
 
       login: async (email, password) => {
@@ -653,6 +657,35 @@ export const useErpStore = create<ErpState>()(
         set((state) => ({
           transactions: state.transactions.filter((t) => t.id !== id),
         })),
+
+      bypassTransactionValidation: (ids) =>
+        set((state) => {
+          const user = state.currentUser?.name || 'Sistema'
+          const now = new Date().toISOString()
+
+          const newTransactions = state.transactions.map((t) => {
+            if (ids.includes(t.id)) {
+              const newLog: PendencyLog = {
+                id: Math.random().toString(36).substring(2, 9),
+                timestamp: now,
+                user: user,
+                action: 'Bypass Validation',
+                details: 'Validação removida manualmente.',
+              }
+
+              return {
+                ...t,
+                validationBypassed: true,
+                status: 'approved',
+                consistencyWarnings: [],
+                pendencyHistory: [...(t.pendencyHistory || []), newLog],
+              }
+            }
+            return t
+          })
+
+          return { transactions: newTransactions }
+        }),
 
       validateTransactionsWithSefaz: async (ids) => {
         await new Promise((resolve) => setTimeout(resolve, 1500))

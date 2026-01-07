@@ -37,6 +37,7 @@ import {
   Search,
   History,
   CheckCheck,
+  ShieldOff,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
@@ -95,6 +96,7 @@ export default function CTeList() {
     setStandardCte,
     validationSettings,
     conditionalRules,
+    bypassTransactionValidation,
   } = useErpStore()
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -116,6 +118,7 @@ export default function CTeList() {
   const [bulkResults, setBulkResults] = useState<
     { tx: Transaction; result: ValidationResult }[]
   >([])
+  const [bypassConfirmationOpen, setBypassConfirmationOpen] = useState(false)
 
   // Trigger pending check on mount
   useEffect(() => {
@@ -313,6 +316,17 @@ export default function CTeList() {
     setIsBulkResultOpen(true)
   }
 
+  const handleBypassValidation = () => {
+    if (selectedItems.length === 0) return
+    bypassTransactionValidation(selectedItems)
+    toast({
+      title: 'Validação Removida',
+      description: `${selectedItems.length} documentos foram marcados como validados manualmente.`,
+    })
+    setSelectedItems([])
+    setBypassConfirmationOpen(false)
+  }
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedItems(currentData.map((t) => t.id))
@@ -457,6 +471,15 @@ export default function CTeList() {
               <Button variant="outline" onClick={handleBulkValidateStandard}>
                 <CheckCheck className="mr-2 h-4 w-4" /> Validar c/ Padrão
               </Button>
+              {userRole === 'admin' && (
+                <Button
+                  variant="outline"
+                  className="border-amber-200 hover:bg-amber-50 text-amber-700"
+                  onClick={() => setBypassConfirmationOpen(true)}
+                >
+                  <ShieldOff className="mr-2 h-4 w-4" /> Remover Validação
+                </Button>
+              )}
             </>
           )}
           {userRole === 'admin' && (
@@ -585,7 +608,7 @@ export default function CTeList() {
                           />
                         </TableCell>
                         <TableCell>
-                          {(alert || hasWarnings) && (
+                          {(alert || hasWarnings) && !t.validationBypassed && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -676,18 +699,28 @@ export default function CTeList() {
                           {formatCurrency(t.value)}
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge
-                            variant="outline"
-                            className={
-                              t.status === 'approved'
-                                ? 'bg-green-50 text-green-700 border-green-200'
-                                : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                            }
-                          >
-                            {t.status === 'approved'
-                              ? 'Autorizado'
-                              : 'Pendente'}
-                          </Badge>
+                          <div className="flex flex-col items-center gap-1">
+                            {t.validationBypassed && (
+                              <Badge
+                                variant="outline"
+                                className="bg-amber-50 text-amber-700 border-amber-200 gap-1"
+                              >
+                                <ShieldOff className="h-3 w-3" /> Manual
+                              </Badge>
+                            )}
+                            <Badge
+                              variant="outline"
+                              className={
+                                t.status === 'approved'
+                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                  : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                              }
+                            >
+                              {t.status === 'approved'
+                                ? 'Autorizado'
+                                : 'Pendente'}
+                            </Badge>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex justify-end gap-1">
@@ -857,6 +890,36 @@ export default function CTeList() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleSetStandard}>
               Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bypassConfirmationOpen}
+        onOpenChange={setBypassConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <ShieldOff className="h-5 w-5" /> Confirmar Remoção de Validação
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a remover a validação de {selectedItems.length}{' '}
+              documentos. <br />
+              <br />
+              <strong>Atenção:</strong> Isso permitirá que documentos com erros
+              sejam processados. O sistema registrará essa ação no histórico de
+              auditoria.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBypassValidation}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Confirmar Bypass
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
