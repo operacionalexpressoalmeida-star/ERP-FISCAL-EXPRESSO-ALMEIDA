@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
@@ -26,14 +26,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Transaction } from '@/stores/useErpStore'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useErpStore } from '@/stores/useErpStore'
 import { Separator } from '@/components/ui/separator'
-import {
-  calculateCteTaxes,
-  validateCte,
-  ValidationResult,
-} from '@/lib/tax-utils'
+import { calculateCteTaxes, validateCte } from '@/lib/tax-utils'
 import { AlertTriangle, Calculator } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -72,20 +68,21 @@ export function CteFormDialog({
   onSave,
 }: CteFormDialogProps) {
   const { companies, selectedCompanyId, transactions } = useErpStore()
-  const [validation, setValidation] = useState<ValidationResult>({
-    isValid: true,
-    errors: [],
-    warnings: [],
-  })
   const [activeTab, setActiveTab] = useState('details')
 
   // Linked Expenses
-  const linkedExpenses = transactions.filter(
-    (t) => t.type === 'expense' && t.relatedTransactionId === initialData?.id,
+  const linkedExpenses = useMemo(
+    () =>
+      transactions.filter(
+        (t) =>
+          t.type === 'expense' && t.relatedTransactionId === initialData?.id,
+      ),
+    [transactions, initialData?.id],
   )
-  const totalLinkedExpenses = linkedExpenses.reduce(
-    (acc, t) => acc + t.value,
-    0,
+
+  const totalLinkedExpenses = useMemo(
+    () => linkedExpenses.reduce((acc, t) => acc + t.value, 0),
+    [linkedExpenses],
   )
 
   const form = useForm<CteFormData>({
@@ -108,6 +105,7 @@ export function CteFormDialog({
     },
   })
 
+  // Effect to reset form when dialog opens or data changes
   useEffect(() => {
     if (open) {
       if (initialData) {
@@ -149,17 +147,51 @@ export function CteFormDialog({
     }
   }, [open, initialData, form, selectedCompanyId])
 
-  // Watch for changes to validate and calc taxes
-  const watchedValues = form.watch()
+  // Watch values for validation and tax calculation
+  // We use useWatch instead of form.watch() for specific fields to avoid re-rendering on every single change of any field
+  const valuesForValidation = useWatch({ control: form.control })
 
+  // Derived state for validation - runs on render, no state update loop
+  const validation = validateCte(valuesForValidation)
+
+  // Watch specific fields for auto tax calculation
+  const origin = useWatch({ control: form.control, name: 'origin' })
+  const destination = useWatch({ control: form.control, name: 'destination' })
+  const value = useWatch({ control: form.control, name: 'value' })
+
+  // Automatic Tax Calculation Effect
   useEffect(() => {
-    const result = validateCte(watchedValues)
-    setValidation(result)
-  }, [watchedValues])
+    if (
+      value &&
+      origin &&
+      destination &&
+      origin.length === 2 &&
+      destination.length === 2
+    ) {
+      const taxes = calculateCteTaxes(value, origin, destination)
 
-  const handleAutoCalc = () => {
-    const { value, origin, destination } = form.getValues()
-    const taxes = calculateCteTaxes(value, origin, destination)
+      // We only update if values are different to avoid potential cycles,
+      // although setValue shouldn't trigger this effect as it depends on origin/dest/value
+      const currentValues = form.getValues()
+      if (
+        currentValues.icmsValue !== taxes.icmsValue ||
+        currentValues.pisValue !== taxes.pisValue ||
+        currentValues.cofinsValue !== taxes.cofinsValue
+      ) {
+        form.setValue('icmsValue', taxes.icmsValue)
+        form.setValue('pisValue', taxes.pisValue)
+        form.setValue('cofinsValue', taxes.cofinsValue)
+      }
+    }
+  }, [value, origin, destination, form])
+
+  const handleManualCalc = () => {
+    const current = form.getValues()
+    const taxes = calculateCteTaxes(
+      current.value,
+      current.origin,
+      current.destination,
+    )
     form.setValue('icmsValue', taxes.icmsValue)
     form.setValue('pisValue', taxes.pisValue)
     form.setValue('cofinsValue', taxes.cofinsValue)
@@ -171,12 +203,13 @@ export function CteFormDialog({
   }
 
   // Net Revenue Calculation
-  const totalTaxes =
-    (watchedValues.icmsValue || 0) +
-    (watchedValues.pisValue || 0) +
-    (watchedValues.cofinsValue || 0)
-  const netRevenue =
-    (watchedValues.value || 0) - totalTaxes - totalLinkedExpenses
+  const icmsValue = useWatch({ control: form.control, name: 'icmsValue' }) || 0
+  const pisValue = useWatch({ control: form.control, name: 'pisValue' }) || 0
+  const cofinsValue =
+    useWatch({ control: form.control, name: 'cofinsValue' }) || 0
+
+  const totalTaxes = icmsValue + pisValue + cofinsValue
+  const netRevenue = (value || 0) - totalTaxes - totalLinkedExpenses
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -387,9 +420,10 @@ export function CteFormDialog({
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={handleAutoCalc}
+                      onClick={handleManualCalc}
                     >
-                      <Calculator className="mr-2 h-3 w-3" /> Calcular Impostos
+                      <Calculator className="mr-2 h-3 w-3" /> Recalcular
+                      Manualmente
                     </Button>
                   </div>
 

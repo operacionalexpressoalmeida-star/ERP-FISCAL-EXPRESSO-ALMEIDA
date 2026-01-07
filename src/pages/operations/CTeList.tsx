@@ -29,7 +29,7 @@ import {
   FileBarChart,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { XmlImportDialog } from '@/components/operations/XmlImportDialog'
@@ -75,17 +75,26 @@ export default function CTeList() {
   const [transactionToDelete, setTransactionToDelete] =
     useState<Transaction | null>(null)
 
-  // Only Revenue transactions (CT-e)
-  const transactions = getFilteredTransactions().filter(
-    (t) => t.type === 'revenue' && t.cteNumber,
+  // Use memo to prevent re-calculating transactions on every render unless filtered transactions changes
+  // getFilteredTransactions returns a new array every time it's called, so we should check its contents or assume useErpStore triggers render only when needed
+  // Since we are inside the component render, we just call it. But wrapping in useMemo is safer.
+  // Note: getFilteredTransactions() output changes only when store changes.
+  const allTransactions = getFilteredTransactions()
+  const transactions = useMemo(
+    () => allTransactions.filter((t) => t.type === 'revenue' && t.cteNumber),
+    [allTransactions],
   )
 
   const [currentPage, setCurrentPage] = useState(1)
   const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE)
 
-  const currentData = transactions.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
+  const currentData = useMemo(
+    () =>
+      transactions.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE,
+      ),
+    [transactions, currentPage],
   )
 
   const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
@@ -297,8 +306,15 @@ export default function CTeList() {
                     <TableCell>
                       {alert && (
                         <Tooltip>
-                          <TooltipTrigger>
-                            <alert.icon className={`h-4 w-4 ${alert.class}`} />
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              className="h-6 w-6 p-0 hover:bg-transparent"
+                            >
+                              <alert.icon
+                                className={`h-4 w-4 ${alert.class}`}
+                              />
+                            </Button>
                           </TooltipTrigger>
                           <TooltipContent>
                             <p>{alert.message}</p>
@@ -346,8 +362,8 @@ export default function CTeList() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Tooltip>
-                        <TooltipTrigger>
-                          <div className="flex flex-col items-end text-xs text-muted-foreground">
+                        <TooltipTrigger asChild>
+                          <div className="flex flex-col items-end text-xs text-muted-foreground cursor-help">
                             <span>Imp: {formatCurrency(totalTaxes)}</span>
                           </div>
                         </TooltipTrigger>

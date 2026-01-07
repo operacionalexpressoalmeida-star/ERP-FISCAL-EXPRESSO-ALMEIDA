@@ -17,7 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatCurrency } from '@/lib/utils'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Printer } from 'lucide-react'
 
 export default function CteTaxReport() {
@@ -31,23 +31,35 @@ export default function CteTaxReport() {
   )
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0])
 
-  const transactions = getFilteredTransactions().filter(
-    (t) =>
-      t.type === 'revenue' &&
-      t.cteNumber &&
-      t.date >= startDate &&
-      t.date <= endDate,
+  // Optimization: useMemo to avoid recalculating on every render if store updates unrelated data
+  // but since getFilteredTransactions returns new array, this memo depends on it.
+  // It's mainly to keep consistency with the pattern used in CTeList.
+  const allTransactions = getFilteredTransactions()
+  const transactions = useMemo(
+    () =>
+      allTransactions.filter(
+        (t) =>
+          t.type === 'revenue' &&
+          t.cteNumber &&
+          t.date >= startDate &&
+          t.date <= endDate,
+      ),
+    [allTransactions, startDate, endDate],
   )
 
-  const totals = transactions.reduce(
-    (acc, t) => {
-      acc.value += t.value
-      acc.icms += t.icmsValue
-      acc.pis += t.pisValue
-      acc.cofins += t.cofinsValue
-      return acc
-    },
-    { value: 0, icms: 0, pis: 0, cofins: 0 },
+  const totals = useMemo(
+    () =>
+      transactions.reduce(
+        (acc, t) => {
+          acc.value += t.value
+          acc.icms += t.icmsValue
+          acc.pis += t.pisValue
+          acc.cofins += t.cofinsValue
+          return acc
+        },
+        { value: 0, icms: 0, pis: 0, cofins: 0 },
+      ),
+    [transactions],
   )
 
   return (
