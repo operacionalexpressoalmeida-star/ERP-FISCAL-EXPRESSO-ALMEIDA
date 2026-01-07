@@ -142,12 +142,8 @@ export function XmlImportDialog({
             const item = await parseFiscalXml(file)
 
             const key = item.accessKey || item.cteNumber
-            if (key && existingKeys.has(key)) {
+            if (key && key !== 'SEM NUMERO' && existingKeys.has(key)) {
               throw new Error('Documento duplicado (já registrado no sistema).')
-            }
-
-            if (!item.cteNumber && !item.documentNumber) {
-              throw new Error('Número do documento não encontrado no XML.')
             }
 
             // Apply Category Override
@@ -161,28 +157,31 @@ export function XmlImportDialog({
             }
 
             calculateTaxesIfNeeded(item)
+            validateConsistency(item)
 
             if (validateSchema) {
-              validateConsistency(item)
-              // If critical errors, we treat as failure for this strict mode?
-              // The requirement says "basic structure check... before finalizing".
-              // Currently validateConsistency just adds warnings and sets status to pending.
-              // To respect "block invalid", we check isValid from validation result.
               const validation = validateCte(
                 item,
                 validationSettings,
                 conditionalRules,
               )
-              if (!validation.isValid && validateSchema) {
+              if (!validation.isValid) {
                 // If strict validation is on and it fails, we throw to log as error
                 throw new Error(
                   `Falha na validação de esquema: ${validation.errors.join(', ')}`,
                 )
               }
             } else {
-              // Flexible import: just parse what we can, minimal checks are done in parser
-              item.consistencyWarnings = []
-              item.status = 'approved' // Optimistic for flexible import
+              // Flexible import: ignore validation errors, just add warnings if any
+              // We already called validateConsistency which populates consistencyWarnings
+              if (
+                item.consistencyWarnings &&
+                item.consistencyWarnings.length > 0
+              ) {
+                item.status = 'pending'
+              } else {
+                item.status = 'approved'
+              }
             }
 
             return { status: 'success' as const, item }
@@ -315,6 +314,10 @@ export function XmlImportDialog({
   const validateConsistency = (item: ParsedFiscalDoc) => {
     const warnings: string[] = []
 
+    if (item.cteNumber === 'SEM NUMERO') {
+      warnings.push('Número do documento não encontrado.')
+    }
+
     if (item.type === 'revenue' && item.providerCnpj) {
       const knownIssuer = companies.some((c) => {
         const cCnpj = c.cnpj.replace(/\D/g, '')
@@ -328,7 +331,11 @@ export function XmlImportDialog({
 
     const result = validateCte(item, validationSettings, conditionalRules)
     // We already checked for blocking errors in processFiles loop if validateSchema is true
-    // Here we just attach warnings
+    // Here we just attach warnings, and also errors if we are in flexible mode (so user sees them as warnings)
+    if (!validateSchema) {
+      result.errors.forEach((e) => warnings.push(e))
+    }
+
     result.warnings.forEach((w) => warnings.push(w))
 
     item.consistencyWarnings = warnings
@@ -354,27 +361,11 @@ export function XmlImportDialog({
   }
 
   const handleConfirm = () => {
-    // Instead of calling onConfirm prop directly which expects ParsedFiscalDoc[],
-    // we should use the store action to support batch info.
-    // However, the component contract uses onConfirm.
-    // If the parent component (CTeList) handles addTransactions, we should pass info there.
-    // But modifying the prop signature breaks contract if not careful.
-    // Let's modify the XmlImportDialog to use the store directly for the batch add,
-    // OR we pass the batch info up.
-    // Since we are refactoring, let's use the store action here directly as it's cleaner for the new requirement.
-
     addTransactions(items, {
       category: importCategory,
       errorLog: errorLog,
       totalFiles: totalFiles,
     })
-
-    // Call legacy onConfirm just in case parent needs to close or refresh, passing items.
-    // But since we already added, maybe we should change onConfirm to just notify success.
-    // For minimal disruption, let's just close.
-    // Wait, the original code called `addTransactions` inside `CTeList`'s `handleImportConfirm`.
-    // I should probably update `CTeList` to handle the new `onConfirm` or call store here.
-    // Calling store here is easier. I will remove `onConfirm` logic from `CTeList` regarding adding transactions.
 
     toast({
       title: 'Importação Concluída',

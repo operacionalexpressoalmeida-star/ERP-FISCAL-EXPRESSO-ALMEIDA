@@ -18,8 +18,33 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     throw new Error('Arquivo XML inválido ou corrompido.')
   }
 
-  const getValue = (parent: Element | Document, tag: string) =>
-    parent.getElementsByTagName(tag)[0]?.textContent || ''
+  // Safe getValue that handles undefined parent
+  const getValue = (
+    parent: Element | Document | undefined | null,
+    tag: string,
+  ) => {
+    if (!parent) return ''
+    return parent.getElementsByTagName(tag)[0]?.textContent || ''
+  }
+
+  // Helper to extract access key from different possible locations
+  const getAccessKey = (
+    infBlock: Element | undefined,
+    type: 'NFe' | 'CTe',
+  ): string => {
+    // 1. Try Id attribute on infBlock
+    if (infBlock && infBlock.hasAttribute('Id')) {
+      return infBlock.getAttribute('Id')?.replace(type, '') || ''
+    }
+    // 2. Try prot[Type] -> infProt -> ch[Type]
+    const protTag = `prot${type}`
+    const chTag = `ch${type}`
+    const prot = xmlDoc.getElementsByTagName(protTag)[0]
+    if (prot) {
+      return getValue(prot, chTag)
+    }
+    return ''
+  }
 
   // Extended Categorization Logic
   const categorize = (desc: string, cfop: string = '') => {
@@ -57,30 +82,29 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
 
   // Try NF-e
   const infNFe = xmlDoc.getElementsByTagName('infNFe')[0]
-  if (infNFe) {
-    const ide = infNFe.getElementsByTagName('ide')[0]
-    const emit = infNFe.getElementsByTagName('emit')[0]
-    const dest = infNFe.getElementsByTagName('dest')[0]
-    const total = infNFe.getElementsByTagName('total')[0]
+  if (infNFe || xmlDoc.getElementsByTagName('NFe')[0]) {
+    // We allow infNFe to be missing if NFe tag exists, but usually infNFe is the data container.
+    // If infNFe is missing but it's an NFe, likely very corrupted, but let's try safely.
 
-    if (!ide || !emit || !total)
-      throw new Error('Estrutura NF-e incompleta (ide/emit/total ausentes).')
+    const ide = infNFe?.getElementsByTagName('ide')[0]
+    const emit = infNFe?.getElementsByTagName('emit')[0]
+    const dest = infNFe?.getElementsByTagName('dest')[0]
+    const total = infNFe?.getElementsByTagName('total')[0]
 
-    const nNF = getValue(ide, 'nNF')
-    const dhEmi = getValue(ide, 'dhEmi')
+    // Access Key priority
+    const accessKey = getAccessKey(infNFe, 'NFe')
+
+    const nNF =
+      getValue(ide, 'nNF') ||
+      (accessKey ? accessKey.substring(25, 34) : 'SEM NUMERO')
+    const dhEmi = getValue(ide, 'dhEmi') || new Date().toISOString()
     const vNF = parseFloat(getValue(total, 'vNF') || '0')
-    const xNomeEmit = getValue(emit, 'xNome')
+    const xNomeEmit = getValue(emit, 'xNome') || 'Emitente Desconhecido'
     const cnpjEmit = getValue(emit, 'CNPJ')
     const cnpjDest = getValue(dest, 'CNPJ')
 
-    let accessKey = ''
-    if (infNFe.hasAttribute('Id')) {
-      accessKey = infNFe.getAttribute('Id')?.replace('NFe', '') || ''
-    }
-
-    const det = infNFe.getElementsByTagName('det')[0]
+    const det = infNFe?.getElementsByTagName('det')[0]
     const prod = det?.getElementsByTagName('prod')[0]
-    if (!prod) throw new Error('Detalhes do produto não encontrados.')
 
     const xProd = getValue(prod, 'xProd')
     const cfop = getValue(prod, 'CFOP')
@@ -90,7 +114,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       type = 'expense' // Default assumption for imported NFe
     }
 
-    const category = categorize(xProd || '', cfop)
+    const category = categorize(xProd || 'Produto Genérico', cfop)
 
     let fuelType, fuelQuantity
     if (category === 'Fuel') {
@@ -105,9 +129,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
 
     return {
       type,
-      date: dhEmi
-        ? dhEmi.split('T')[0]
-        : new Date().toISOString().split('T')[0],
+      date: dhEmi.split('T')[0],
       value: vNF,
       description: xProd ? `NF-e ${nNF} - ${xProd}` : `NF-e ${nNF} - Compra`,
       providerName: xNomeEmit,
@@ -128,27 +150,39 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
 
   // Try CT-e
   const infCte = xmlDoc.getElementsByTagName('infCte')[0]
-  if (infCte) {
-    const nCT = getValue(infCte, 'nCT')
-    if (!nCT) throw new Error('Número do CT-e (nCT) não encontrado.')
+  if (infCte || xmlDoc.getElementsByTagName('CTe')[0]) {
+    const accessKey = getAccessKey(infCte, 'CTe')
 
-    const dhEmi = getValue(infCte, 'dhEmi')
-    const vTPrest = parseFloat(getValue(infCte, 'vTPrest') || '0')
-    const ide = infCte.getElementsByTagName('ide')[0]
-    const ufIni = getValue(ide, 'UFIni')
-    const ufFim = getValue(ide, 'UFFim')
+    const nCT =
+      getValue(infCte, 'nCT') ||
+      (accessKey ? accessKey.substring(25, 34) : 'SEM NUMERO')
+    const dhEmi = getValue(infCte, 'dhEmi') || new Date().toISOString()
+
+    // vTPrest is typically direct child of infCte in standard layout
+    let vTPrest = parseFloat(getValue(infCte, 'vTPrest') || '0')
+    if (vTPrest === 0) {
+      // Try vPrest -> vTPrest nested (some versions)
+      const vPrest = infCte?.getElementsByTagName('vPrest')[0]
+      if (vPrest) {
+        vTPrest = parseFloat(getValue(vPrest, 'vTPrest') || '0')
+      }
+    }
+
+    const ide = infCte?.getElementsByTagName('ide')[0]
+    const ufIni = getValue(ide, 'UFIni') || 'XX'
+    const ufFim = getValue(ide, 'UFFim') || 'XX'
     const cfop = getValue(ide, 'CFOP')
 
-    const dest = infCte.getElementsByTagName('dest')[0]
-    const cnpjDest = getValue(dest!, 'CNPJ') || getValue(dest!, 'CPF')
-    const xNomeDest = getValue(dest!, 'xNome')
+    const dest = infCte?.getElementsByTagName('dest')[0]
+    const cnpjDest = getValue(dest, 'CNPJ') || getValue(dest, 'CPF')
+    const xNomeDest = getValue(dest, 'xNome') || 'Destinatário Desconhecido'
 
-    const emit = infCte.getElementsByTagName('emit')[0]
-    const cnpjEmit = getValue(emit!, 'CNPJ')
-    const xNomeEmit = getValue(emit!, 'xNome')
+    const emit = infCte?.getElementsByTagName('emit')[0]
+    const cnpjEmit = getValue(emit, 'CNPJ')
+    const xNomeEmit = getValue(emit, 'xNome') || 'Emitente Desconhecido'
 
     let icmsValue = 0
-    const imp = infCte.getElementsByTagName('imp')[0]
+    const imp = infCte?.getElementsByTagName('imp')[0]
     if (imp) {
       const icms = imp.getElementsByTagName('ICMS')[0]
       if (icms) {
@@ -159,18 +193,13 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       }
     }
 
-    let accessKey = ''
-    if (infCte.hasAttribute('Id')) {
-      accessKey = infCte.getAttribute('Id')?.replace('CTe', '') || ''
-    }
-
     const xObs = getValue(infCte, 'xObs')
-    const description = xObs
-      ? xObs.slice(0, 50)
-      : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
+    const description =
+      xObs && xObs.length > 0
+        ? xObs.slice(0, 50)
+        : `Frete CT-e ${nCT} (${ufIni} -> ${ufFim})`
     const category = categorize(description, cfop)
 
-    // Try to extract freight info (mock logic as usually it's not in standard CT-e XML explicitly like this, but simulating reading from Obs)
     let freightId = ''
     if (xObs && xObs.includes('Ref:')) {
       const match = xObs.match(/Ref:\s*([A-Z0-9]+)/)
@@ -179,9 +208,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
 
     return {
       type: 'revenue',
-      date: dhEmi
-        ? dhEmi.split('T')[0]
-        : new Date().toISOString().split('T')[0],
+      date: dhEmi.split('T')[0],
       value: vTPrest,
       cteNumber: nCT,
       origin: ufIni,
@@ -210,44 +237,42 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
     const dEmi = dataEmissao?.textContent
     const discriminacao =
       xmlDoc.getElementsByTagName('Discriminacao')[0]?.textContent || ''
-    const numero = xmlDoc.getElementsByTagName('Numero')[0]?.textContent || ''
-
-    if (!numero) throw new Error('Número da NFS-e não encontrado.')
+    const numero =
+      xmlDoc.getElementsByTagName('Numero')[0]?.textContent || 'SEM NUMERO'
 
     const tomador = xmlDoc.getElementsByTagName('Tomador')[0]
     const cpfCnpj = tomador?.getElementsByTagName('CpfCnpj')[0]
-    const cnpjTomador = getValue(cpfCnpj!, 'Cnpj')
-    const razaoSocialTomador = getValue(tomador!, 'RazaoSocial')
+    const cnpjTomador = getValue(cpfCnpj, 'Cnpj')
+    const razaoSocialTomador =
+      getValue(tomador, 'RazaoSocial') || 'Tomador Desconhecido'
 
     const prestador =
       xmlDoc.getElementsByTagName('Prestador')[0] ||
       xmlDoc.getElementsByTagName('PrestadorServico')[0]
     const cpfCnpjPrestador = prestador?.getElementsByTagName('CpfCnpj')[0]
-    const cnpjPrestador = getValue(cpfCnpjPrestador!, 'Cnpj')
-    const razaoSocialPrestador = getValue(prestador!, 'RazaoSocial')
+    const cnpjPrestador = getValue(cpfCnpjPrestador, 'Cnpj')
+    const razaoSocialPrestador =
+      getValue(prestador, 'RazaoSocial') || 'Prestador Desconhecido'
     const category = categorize(discriminacao)
 
-    if (vServ > 0) {
-      return {
-        type: 'revenue',
-        date: dEmi
-          ? dEmi.split('T')[0]
-          : new Date().toISOString().split('T')[0],
-        value: vServ,
-        description: discriminacao
-          ? discriminacao.slice(0, 100)
-          : `Serviço NFS-e ${numero}`,
-        cteNumber: numero,
-        recipientCnpj: cnpjTomador,
-        takerName: razaoSocialTomador,
-        providerCnpj: cnpjPrestador,
-        providerName: razaoSocialPrestador,
-        documentNumber: numero,
-        category,
-        icmsValue: 0,
-        pisValue: 0,
-        cofinsValue: 0,
-      }
+    // Accept NFS-e even if partial
+    return {
+      type: 'revenue',
+      date: dEmi ? dEmi.split('T')[0] : new Date().toISOString().split('T')[0],
+      value: vServ,
+      description: discriminacao
+        ? discriminacao.slice(0, 100)
+        : `Serviço NFS-e ${numero}`,
+      cteNumber: numero,
+      recipientCnpj: cnpjTomador,
+      takerName: razaoSocialTomador,
+      providerCnpj: cnpjPrestador,
+      providerName: razaoSocialPrestador,
+      documentNumber: numero,
+      category,
+      icmsValue: 0,
+      pisValue: 0,
+      cofinsValue: 0,
     }
   }
 
