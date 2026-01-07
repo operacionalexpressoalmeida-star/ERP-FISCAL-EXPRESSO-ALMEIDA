@@ -29,6 +29,7 @@ import {
   Network,
   FileSignature,
   TrendingUp,
+  Settings2,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -282,6 +283,19 @@ export function AppSidebar() {
                     <Link to="/admin/approvals">
                       <CheckSquare />
                       <span>Aprovações</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname.startsWith(
+                      '/admin/categorization',
+                    )}
+                  >
+                    <Link to="/admin/categorization">
+                      <Settings2 />
+                      <span>Categorização</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

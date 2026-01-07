@@ -116,6 +116,14 @@ export interface IntegrationLog {
   details?: string
 }
 
+export interface CategorizationRule {
+  id: string
+  field: 'cfop' | 'description' | 'origin' | 'destination'
+  operator: 'equals' | 'contains' | 'starts_with'
+  value: string
+  targetCategory: string
+}
+
 export interface Transaction {
   id: string
   companyId: string
@@ -154,6 +162,7 @@ export interface Transaction {
   fuelType?: string
   fuelQuantity?: number
   odometer?: number
+  relatedTransactionId?: string // Link expenses to revenue (CT-e)
 }
 
 export interface LalurEntry {
@@ -177,6 +186,7 @@ export interface ErpState {
   apiConfigs: ApiConfig[]
   certificates: Certificate[]
   integrationLogs: IntegrationLog[]
+  categorizationRules: CategorizationRule[]
   selectedCompanyId: string | 'consolidated'
   userRole: UserRole
 
@@ -219,6 +229,15 @@ export interface ErpState {
   addCertificate: (cert: Omit<Certificate, 'id'>) => void
   removeCertificate: (id: string) => void
   addIntegrationLog: (log: Omit<IntegrationLog, 'id'>) => void
+  addCategorizationRule: (rule: Omit<CategorizationRule, 'id'>) => void
+  removeCategorizationRule: (id: string) => void
+  updateCategorizationRule: (
+    id: string,
+    rule: Partial<CategorizationRule>,
+  ) => void
+  applyCategorizationRules: (
+    transaction: Partial<Transaction>,
+  ) => Partial<Transaction>
   getFilteredTransactions: () => Transaction[]
   getFilteredLalurEntries: () => LalurEntry[]
   getFilteredAssets: () => Asset[]
@@ -313,6 +332,7 @@ export const useErpStore = create<ErpState>()(
         },
       ],
       integrationLogs: [],
+      categorizationRules: [],
 
       setContext: (id) => set({ selectedCompanyId: id }),
       setUserRole: (role) => set({ userRole: role }),
@@ -339,12 +359,18 @@ export const useErpStore = create<ErpState>()(
 
       addTransaction: (transaction) =>
         set((state) => {
-          const newTx = {
+          let newTx = {
             ...transaction,
             status: transaction.status || 'approved',
             id: Math.random().toString(36).substring(2, 9),
             isReconciled: false,
           }
+
+          // Apply Categorization Rules
+          newTx = {
+            ...newTx,
+            ...get().applyCategorizationRules(newTx),
+          } as typeof newTx
 
           // Auto-link Asset by Plate
           if (!newTx.assetId && newTx.description) {
@@ -796,14 +822,6 @@ export const useErpStore = create<ErpState>()(
         }
 
         if (newExpenses.length > 0) {
-          // We call addTransaction for each to trigger the store logic (linking)
-          // But addTransaction updates state directly, so we need to be careful inside the loop
-          // Actually, we can just return the count and let the caller handle UI,
-          // but we need to update state.
-          // Since `syncSefazExpenses` is inside the store, we can update state directly.
-          // But to reuse logic of `addTransaction`, we should manually invoke similar logic.
-          // For simplicity, let's just append to transactions and run linking logic here.
-
           let updatedAssets = assets
 
           newExpenses.forEach((tx) => {
@@ -816,8 +834,6 @@ export const useErpStore = create<ErpState>()(
               }
             }
             // Logic for auto updates (e.g. status) is normally on 'addTransaction'.
-            // For now, let's assume they come as pending and no immediate asset update is needed
-            // until approval, EXCEPT for status 'In Maintenance' if pending maintenance.
             if (tx.category === 'Maintenance' && tx.status === 'pending') {
               if (tx.assetId) {
                 updatedAssets = updatedAssets.map((a) =>
@@ -881,6 +897,54 @@ export const useErpStore = create<ErpState>()(
             ...state.integrationLogs,
           ].slice(0, 100),
         })),
+
+      addCategorizationRule: (rule) =>
+        set((state) => ({
+          categorizationRules: [
+            ...state.categorizationRules,
+            { ...rule, id: Math.random().toString(36).substring(2, 9) },
+          ],
+        })),
+
+      removeCategorizationRule: (id) =>
+        set((state) => ({
+          categorizationRules: state.categorizationRules.filter(
+            (r) => r.id !== id,
+          ),
+        })),
+
+      updateCategorizationRule: (id, rule) =>
+        set((state) => ({
+          categorizationRules: state.categorizationRules.map((r) =>
+            r.id === id ? { ...r, ...rule } : r,
+          ),
+        })),
+
+      applyCategorizationRules: (transaction) => {
+        const rules = get().categorizationRules
+        if (!rules || rules.length === 0) return {}
+
+        for (const rule of rules) {
+          const fieldValue =
+            transaction[rule.field as keyof Partial<Transaction>]
+          if (!fieldValue) continue
+
+          const val = String(fieldValue).toLowerCase()
+          const ruleVal = rule.value.toLowerCase()
+
+          let matched = false
+          if (rule.operator === 'equals' && val === ruleVal) matched = true
+          if (rule.operator === 'contains' && val.includes(ruleVal))
+            matched = true
+          if (rule.operator === 'starts_with' && val.startsWith(ruleVal))
+            matched = true
+
+          if (matched) {
+            return { category: rule.targetCategory }
+          }
+        }
+        return {}
+      },
 
       getFilteredTransactions: () => {
         const { transactions, selectedCompanyId } = get()

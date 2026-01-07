@@ -26,6 +26,7 @@ import {
   Plus,
   Pencil,
   Trash2,
+  FileBarChart,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState } from 'react'
@@ -54,6 +55,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { calculateCteTaxes } from '@/lib/tax-utils'
 
 const ITEMS_PER_PAGE = 10
 
@@ -103,8 +105,24 @@ export default function CTeList() {
         return
       }
 
+      // Auto-calc taxes if missing during import
+      let finalItem = { ...item }
+      if (
+        finalItem.origin &&
+        finalItem.destination &&
+        finalItem.value &&
+        finalItem.icmsValue === 0
+      ) {
+        const taxes = calculateCteTaxes(
+          finalItem.value,
+          finalItem.origin,
+          finalItem.destination,
+        )
+        finalItem = { ...finalItem, ...taxes }
+      }
+
       addTransaction({
-        ...item,
+        ...finalItem,
         companyId:
           selectedCompanyId === 'consolidated'
             ? 'c1' // Default to Matrix if consolidated
@@ -117,7 +135,7 @@ export default function CTeList() {
     if (addedCount > 0) {
       toast({
         title: 'Importação Concluída',
-        description: `${addedCount} novos CT-es registrados com sucesso.`,
+        description: `${addedCount} novos CT-es registrados com sucesso. Regras de categorização aplicadas.`,
       })
     }
 
@@ -223,6 +241,11 @@ export default function CTeList() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/reports/cte-tax">
+              <FileBarChart className="mr-2 h-4 w-4" /> Relatório Fiscal
+            </Link>
+          </Button>
           <Button variant="outline" asChild className="hidden lg:flex">
             <Link to="/reports/revenue-analytics">
               <BarChart3 className="mr-2 h-4 w-4" /> Análise Avançada
@@ -257,7 +280,7 @@ export default function CTeList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Número</TableHead>
                 <TableHead>Origem / Destino</TableHead>
-                <TableHead>Tomador</TableHead>
+                <TableHead>Categoria</TableHead>
                 <TableHead>CFOP</TableHead>
                 <TableHead className="text-right">Tributos</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
@@ -314,14 +337,9 @@ export default function CTeList() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-col max-w-[150px]">
-                        <span className="truncate text-sm font-medium">
-                          {t.takerName || '-'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {t.takerCnpj}
-                        </span>
-                      </div>
+                      <Badge variant="outline" className="text-xs font-normal">
+                        {t.category || 'Uncategorized'}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-xs font-mono text-muted-foreground">
                       {t.cfop || '-'}

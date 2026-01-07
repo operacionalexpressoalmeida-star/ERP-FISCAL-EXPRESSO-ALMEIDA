@@ -23,6 +23,8 @@ import RevenueAnalytics from './pages/reports/RevenueAnalytics'
 import ApprovalsPage from './pages/admin/ApprovalsPage'
 import ContractList from './pages/contracts/ContractList'
 import IntegrationCenter from './pages/admin/IntegrationCenter'
+import CategorizationRules from './pages/admin/CategorizationRules'
+import CteTaxReport from './pages/reports/CteTaxReport'
 
 const App = () => (
   <BrowserRouter
@@ -48,6 +50,7 @@ const App = () => (
           <Route path="/accounting/taxes" element={<TaxPage />} />
           <Route path="/reports/dre" element={<DrePage />} />
           <Route path="/reports/tax" element={<TaxReports />} />
+          <Route path="/reports/cte-tax" element={<CteTaxReport />} />
           <Route
             path="/reports/custom-dashboard"
             element={<CustomDashboard />}
@@ -58,6 +61,10 @@ const App = () => (
           />
           <Route path="/admin/approvals" element={<ApprovalsPage />} />
           <Route path="/admin/integrations" element={<IntegrationCenter />} />
+          <Route
+            path="/admin/categorization"
+            element={<CategorizationRules />}
+          />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
