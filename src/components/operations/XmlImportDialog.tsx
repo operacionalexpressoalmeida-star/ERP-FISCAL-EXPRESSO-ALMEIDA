@@ -128,9 +128,6 @@ export function XmlImportDialog({
             if (!item.cteNumber && !item.documentNumber) {
               throw new Error('Número do documento não encontrado no XML.')
             }
-            if (item.value <= 0) {
-              throw new Error('Valor do documento inválido (Zero ou Negativo).')
-            }
 
             calculateTaxesIfNeeded(item)
             validateConsistency(item)

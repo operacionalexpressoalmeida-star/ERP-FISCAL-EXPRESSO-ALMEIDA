@@ -212,6 +212,7 @@ export default function CTeList() {
 
       newTransactions.push({
         ...finalItem,
+        type: 'revenue', // Force revenue classification
         companyId:
           selectedCompanyId === 'consolidated' ? 'c1' : selectedCompanyId,
         status: finalItem.status || 'approved',
@@ -220,13 +221,17 @@ export default function CTeList() {
 
     if (newTransactions.length > 0) {
       addTransactions(newTransactions)
+      toast({
+        title: 'Importação Concluída',
+        description: `${newTransactions.length} documentos importados com sucesso.`,
+      })
     }
 
     if (duplicateCount > 0) {
       toast({
         title: 'Duplicidades Ignoradas',
         description: `${duplicateCount} documentos já existiam e não foram importados.`,
-        variant: 'warning',
+        variant: 'destructive', // Warning variant not available, using destructive for attention
       })
     }
   }
@@ -277,7 +282,7 @@ export default function CTeList() {
       toast({
         title: 'Seleção Vazia',
         description: 'Selecione pelo menos um item para validar.',
-        variant: 'warning',
+        variant: 'default',
       })
       return
     }
