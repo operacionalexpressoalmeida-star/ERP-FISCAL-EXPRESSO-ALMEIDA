@@ -7,6 +7,7 @@ export interface ParsedFiscalDoc extends Omit<
   rawXml?: string
   recipientCnpj?: string
   providerCnpj?: string
+  missingTags?: string[]
 }
 
 export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
@@ -25,6 +26,15 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
   ) => {
     if (!parent) return ''
     return parent.getElementsByTagName(tag)[0]?.textContent || ''
+  }
+
+  // Check existence of tags
+  const checkExists = (
+    parent: Element | Document | undefined | null,
+    tag: string,
+  ) => {
+    if (!parent) return false
+    return parent.getElementsByTagName(tag).length > 0
   }
 
   // Helper to extract access key from different possible locations
@@ -127,6 +137,12 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       fuelQuantity = qCom
     }
 
+    const missingTags: string[] = []
+    if (!checkExists(infNFe, 'ide')) missingTags.push('ide')
+    if (!checkExists(infNFe, 'emit')) missingTags.push('emit')
+    if (!checkExists(infNFe, 'dest')) missingTags.push('dest')
+    if (!checkExists(infNFe, 'total')) missingTags.push('total')
+
     return {
       type,
       date: dhEmi.split('T')[0],
@@ -145,6 +161,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       fuelType,
       fuelQuantity,
       odometer: 0,
+      missingTags,
     }
   }
 
@@ -206,6 +223,18 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       if (match) freightId = match[1]
     }
 
+    // Missing Tags Check
+    const missingTags: string[] = []
+    if (!checkExists(infCte, 'ide')) missingTags.push('ide')
+    if (!checkExists(infCte, 'emit')) missingTags.push('emit')
+    if (!checkExists(infCte, 'dest')) missingTags.push('dest')
+    // CTe doesn't always have a 'total' block like NFe, value is often in vPrest or vTPrest
+    // We check vPrest as proxy for total/values block if needed, but let's stick to standard blocks
+    // If vTPrest is 0, we can assume total/values are missing
+    if (vTPrest === 0) missingTags.push('total')
+    // infCarga check
+    if (!checkExists(infCte, 'infCarga')) missingTags.push('infCarga')
+
     return {
       type: 'revenue',
       date: dhEmi.split('T')[0],
@@ -226,6 +255,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       cofinsValue: 0,
       freightId,
       freightStatus: freightId ? 'In Transit' : undefined,
+      missingTags,
     }
   }
 
@@ -273,6 +303,7 @@ export async function parseFiscalXml(file: File): Promise<ParsedFiscalDoc> {
       icmsValue: 0,
       pisValue: 0,
       cofinsValue: 0,
+      missingTags: [],
     }
   }
 

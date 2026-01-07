@@ -12,8 +12,14 @@ import { Input } from '@/components/ui/input'
 import { useErpStore } from '@/stores/useErpStore'
 import { useState, useEffect } from 'react'
 import { toast } from '@/hooks/use-toast'
-import { ShieldOff } from 'lucide-react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { ShieldOff, Tags } from 'lucide-react'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { Separator } from '@/components/ui/separator'
 
 interface ValidationSettingsDialogProps {
   open: boolean
@@ -40,9 +46,22 @@ export function ValidationSettingsDialog({
     onOpenChange(false)
   }
 
+  const toggleTag = (
+    tag: keyof typeof localSettings.xmlTags,
+    checked: boolean,
+  ) => {
+    setLocalSettings({
+      ...localSettings,
+      xmlTags: {
+        ...localSettings.xmlTags,
+        [tag]: checked ? 'mandatory' : 'optional',
+      },
+    })
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configurações de Validação (CT-e)</DialogTitle>
         </DialogHeader>
@@ -74,79 +93,144 @@ export function ValidationSettingsDialog({
             />
           </div>
 
-          <div className="flex items-center justify-between space-x-2">
-            <Label htmlFor="blockCfop" className="flex flex-col gap-1">
-              <span>Bloquear CFOP Inválido</span>
-              <span className="font-normal text-xs text-muted-foreground">
-                Impede a emissão se o CFOP não corresponder à UF (5xxx/6xxx).
-              </span>
-            </Label>
-            <Switch
-              id="blockCfop"
-              checked={localSettings.blockInvalidCfop}
-              onCheckedChange={(c) =>
-                setLocalSettings({ ...localSettings, blockInvalidCfop: c })
-              }
-            />
-          </div>
-          <div className="flex items-center justify-between space-x-2">
-            <Label htmlFor="blockState" className="flex flex-col gap-1">
-              <span>Validar UF Estrita</span>
-              <span className="font-normal text-xs text-muted-foreground">
-                Rejeita siglas de estado que não existem na tabela oficial.
-              </span>
-            </Label>
-            <Switch
-              id="blockState"
-              checked={localSettings.blockInvalidStates}
-              onCheckedChange={(c) =>
-                setLocalSettings({ ...localSettings, blockInvalidStates: c })
-              }
-            />
-          </div>
-          <div className="flex items-center justify-between space-x-2">
-            <Label htmlFor="reqFreight" className="flex flex-col gap-1">
-              <span>Exigir ID de Frete</span>
-              <span className="font-normal text-xs text-muted-foreground">
-                Alerta se o documento não estiver vinculado a uma carga.
-              </span>
-            </Label>
-            <Switch
-              id="reqFreight"
-              checked={localSettings.requireFreightId}
-              onCheckedChange={(c) =>
-                setLocalSettings({ ...localSettings, requireFreightId: c })
-              }
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="maxVal">Alerta de Valor Máximo</Label>
-              <Input
-                id="maxVal"
-                type="number"
-                value={localSettings.maxValueThreshold}
-                onChange={(e) =>
-                  setLocalSettings({
-                    ...localSettings,
-                    maxValueThreshold: Number(e.target.value),
-                  })
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="tags">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <Tags className="h-4 w-4" />
+                  <span>Tags XML Obrigatórias</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 pt-2">
+                <div className="text-sm text-muted-foreground mb-4">
+                  Selecione quais tags do XML são indispensáveis. Se
+                  desmarcadas, o sistema aceitará o arquivo como{' '}
+                  <strong>Parcial</strong>.
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="tag-ide"
+                      checked={localSettings.xmlTags.ide === 'mandatory'}
+                      onCheckedChange={(c) => toggleTag('ide', c)}
+                    />
+                    <Label htmlFor="tag-ide">Identificação (ide)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="tag-emit"
+                      checked={localSettings.xmlTags.emit === 'mandatory'}
+                      onCheckedChange={(c) => toggleTag('emit', c)}
+                    />
+                    <Label htmlFor="tag-emit">Emitente (emit)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="tag-dest"
+                      checked={localSettings.xmlTags.dest === 'mandatory'}
+                      onCheckedChange={(c) => toggleTag('dest', c)}
+                    />
+                    <Label htmlFor="tag-dest">Destinatário (dest)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="tag-total"
+                      checked={localSettings.xmlTags.total === 'mandatory'}
+                      onCheckedChange={(c) => toggleTag('total', c)}
+                    />
+                    <Label htmlFor="tag-total">Valores Totais (total)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="tag-infCarga"
+                      checked={localSettings.xmlTags.infCarga === 'mandatory'}
+                      onCheckedChange={(c) => toggleTag('infCarga', c)}
+                    />
+                    <Label htmlFor="tag-infCarga">Info Carga (infCarga)</Label>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium">Regras de Negócio</h4>
+            <div className="flex items-center justify-between space-x-2">
+              <Label htmlFor="blockCfop" className="flex flex-col gap-1">
+                <span>Bloquear CFOP Inválido</span>
+                <span className="font-normal text-xs text-muted-foreground">
+                  Impede a emissão se o CFOP não corresponder à UF (5xxx/6xxx).
+                </span>
+              </Label>
+              <Switch
+                id="blockCfop"
+                checked={localSettings.blockInvalidCfop}
+                onCheckedChange={(c) =>
+                  setLocalSettings({ ...localSettings, blockInvalidCfop: c })
                 }
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="pendingLimit">Limite Pendência (Horas)</Label>
-              <Input
-                id="pendingLimit"
-                type="number"
-                value={localSettings.pendingLimitHours}
-                onChange={(e) =>
-                  setLocalSettings({
-                    ...localSettings,
-                    pendingLimitHours: Number(e.target.value),
-                  })
+            <div className="flex items-center justify-between space-x-2">
+              <Label htmlFor="blockState" className="flex flex-col gap-1">
+                <span>Validar UF Estrita</span>
+                <span className="font-normal text-xs text-muted-foreground">
+                  Rejeita siglas de estado que não existem na tabela oficial.
+                </span>
+              </Label>
+              <Switch
+                id="blockState"
+                checked={localSettings.blockInvalidStates}
+                onCheckedChange={(c) =>
+                  setLocalSettings({ ...localSettings, blockInvalidStates: c })
                 }
               />
+            </div>
+            <div className="flex items-center justify-between space-x-2">
+              <Label htmlFor="reqFreight" className="flex flex-col gap-1">
+                <span>Exigir ID de Frete</span>
+                <span className="font-normal text-xs text-muted-foreground">
+                  Alerta se o documento não estiver vinculado a uma carga.
+                </span>
+              </Label>
+              <Switch
+                id="reqFreight"
+                checked={localSettings.requireFreightId}
+                onCheckedChange={(c) =>
+                  setLocalSettings({ ...localSettings, requireFreightId: c })
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="maxVal">Alerta de Valor Máximo</Label>
+                <Input
+                  id="maxVal"
+                  type="number"
+                  value={localSettings.maxValueThreshold}
+                  onChange={(e) =>
+                    setLocalSettings({
+                      ...localSettings,
+                      maxValueThreshold: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="pendingLimit">Limite Pendência (Horas)</Label>
+                <Input
+                  id="pendingLimit"
+                  type="number"
+                  value={localSettings.pendingLimitHours}
+                  onChange={(e) =>
+                    setLocalSettings({
+                      ...localSettings,
+                      pendingLimitHours: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
             </div>
           </div>
         </div>

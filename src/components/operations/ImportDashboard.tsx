@@ -40,13 +40,17 @@ export function ImportDashboard() {
     (acc, batch) => acc + batch.successCount,
     0,
   )
+  const totalPartial = importHistory.reduce(
+    (acc, batch) => acc + batch.partialCount,
+    0,
+  )
   const totalErrors = importHistory.reduce(
     (acc, batch) => acc + batch.errorCount,
     0,
   )
   const successRate =
     totalProcessed > 0
-      ? ((totalSuccess / totalProcessed) * 100).toFixed(1)
+      ? (((totalSuccess + totalPartial) / totalProcessed) * 100).toFixed(1)
       : '0.0'
 
   const getStatusBadge = (status: ImportBatch['status']) => {
@@ -105,7 +109,7 @@ export function ImportDashboard() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
@@ -127,21 +131,33 @@ export function ImportDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{successRate}%</div>
-            <p className="text-xs text-muted-foreground">
-              Arquivos importados sem erro
-            </p>
+            <p className="text-xs text-muted-foreground">Incluindo parciais</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Erros Pendentes
+              Importações Parciais
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalErrors}</div>
-            <p className="text-xs text-muted-foreground">Arquivos falharam</p>
+            <div className="text-2xl font-bold text-amber-600">
+              {totalPartial}
+            </div>
+            <p className="text-xs text-muted-foreground">Requerem revisão</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Falhas</CardTitle>
+            <XCircle className="h-4 w-4 text-rose-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-rose-600">
+              {totalErrors}
+            </div>
+            <p className="text-xs text-muted-foreground">Não importados</p>
           </CardContent>
         </Card>
       </div>
@@ -161,6 +177,7 @@ export function ImportDashboard() {
                 <TableHead>Data/Hora</TableHead>
                 <TableHead>Usuário</TableHead>
                 <TableHead className="text-center">Qtd. Arquivos</TableHead>
+                <TableHead className="text-center">Parciais</TableHead>
                 <TableHead className="text-center">Categoria</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
@@ -182,6 +199,9 @@ export function ImportDashboard() {
                   <TableCell className="text-center">
                     {batch.totalFiles}
                   </TableCell>
+                  <TableCell className="text-center text-amber-600 font-semibold">
+                    {batch.partialCount > 0 ? batch.partialCount : '-'}
+                  </TableCell>
                   <TableCell className="text-center">
                     {getCategoryBadge(batch.category)}
                   </TableCell>
@@ -191,7 +211,7 @@ export function ImportDashboard() {
                   <TableCell className="text-right">
                     {batch.status !== 'Success' && (
                       <span className="text-xs text-blue-600 underline cursor-pointer">
-                        Ver Detalhes
+                        Ver Logs
                       </span>
                     )}
                   </TableCell>
@@ -200,7 +220,7 @@ export function ImportDashboard() {
               {importHistory.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center h-24 text-muted-foreground"
                   >
                     Nenhum histórico disponível.
@@ -233,6 +253,10 @@ export function ImportDashboard() {
               <span>Sucessos: {selectedBatch?.successCount}</span>
             </div>
             <div className="flex items-center gap-2 text-sm">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <span>Parciais: {selectedBatch?.partialCount}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
               <XCircle className="h-4 w-4 text-rose-500" />
               <span>Erros: {selectedBatch?.errorCount}</span>
             </div>
@@ -243,25 +267,38 @@ export function ImportDashboard() {
               <TableHeader className="bg-muted">
                 <TableRow>
                   <TableHead>Arquivo</TableHead>
-                  <TableHead>Erro</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Detalhes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {selectedBatch?.errorLog?.map((log, i) => (
+                {selectedBatch?.logs?.map((log, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium text-xs">
                       {log.fileName}
                     </TableCell>
-                    <TableCell className="text-xs text-rose-600">
-                      {log.error}
+                    <TableCell className="text-xs">
+                      {log.status === 'Success' ? (
+                        <span className="text-emerald-600">Sucesso</span>
+                      ) : log.status === 'Partial' ? (
+                        <span className="text-amber-600 font-semibold">
+                          Parcial
+                        </span>
+                      ) : (
+                        <span className="text-rose-600 font-semibold">
+                          Erro
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {log.details.join('; ')}
                     </TableCell>
                   </TableRow>
                 ))}
-                {(!selectedBatch?.errorLog ||
-                  selectedBatch?.errorLog.length === 0) && (
+                {(!selectedBatch?.logs || selectedBatch?.logs.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={2} className="text-center py-4">
-                      Nenhum erro registrado neste lote.
+                    <TableCell colSpan={3} className="text-center py-4">
+                      Logs detalhados não disponíveis para este lote (legado).
                     </TableCell>
                   </TableRow>
                 )}

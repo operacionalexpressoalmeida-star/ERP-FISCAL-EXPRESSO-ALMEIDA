@@ -40,6 +40,7 @@ import {
   ShieldOff,
   RefreshCw,
   XCircle,
+  PenLine,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
@@ -68,11 +69,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  calculateCteTaxes,
-  validateCte,
-  ValidationResult,
-} from '@/lib/tax-utils'
+import { validateCte, ValidationResult } from '@/lib/tax-utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ValidationSettingsDialog } from '@/components/operations/ValidationSettingsDialog'
@@ -153,7 +150,8 @@ export default function CTeList() {
         (t) =>
           t.status === 'pending' ||
           (t.consistencyWarnings && t.consistencyWarnings.length > 0) ||
-          t.sefazStatus === 'unchecked',
+          t.sefazStatus === 'unchecked' ||
+          t.importStatus === 'partial',
       )
     }
     if (selectedTab === 'processed') {
@@ -161,7 +159,8 @@ export default function CTeList() {
         (t) =>
           t.status === 'approved' &&
           (!t.consistencyWarnings || t.consistencyWarnings.length === 0) &&
-          t.sefazStatus !== 'unchecked',
+          t.sefazStatus !== 'unchecked' &&
+          t.importStatus !== 'partial',
       )
     }
     return data
@@ -181,8 +180,6 @@ export default function CTeList() {
 
   const handleImportConfirm = (items: ParsedFiscalDoc[]) => {
     // Legacy support: XML import dialog now handles adding to store directly to support batch info.
-    // This callback is kept empty or for future UI updates if needed.
-    // The dialog manages toast and state update.
   }
 
   const handleManualSave = (data: CteFormData) => {
@@ -315,6 +312,15 @@ export default function CTeList() {
     const docDate = new Date(t.date)
     const diffTime = Math.abs(today.getTime() - docDate.getTime())
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+    if (t.importStatus === 'partial') {
+      return {
+        type: 'partial',
+        icon: AlertTriangle,
+        message: 'Importação Parcial',
+        class: 'text-amber-500',
+      }
+    }
 
     if (!t.accessKey) {
       return {
@@ -524,7 +530,8 @@ export default function CTeList() {
             {transactions.filter(
               (t) =>
                 t.status === 'pending' ||
-                (t.consistencyWarnings && t.consistencyWarnings.length > 0),
+                (t.consistencyWarnings && t.consistencyWarnings.length > 0) ||
+                t.importStatus === 'partial',
             ).length > 0 && (
               <Badge variant="secondary" className="ml-2 h-5 px-1">
                 {
@@ -532,7 +539,8 @@ export default function CTeList() {
                     (t) =>
                       t.status === 'pending' ||
                       (t.consistencyWarnings &&
-                        t.consistencyWarnings.length > 0),
+                        t.consistencyWarnings.length > 0) ||
+                      t.importStatus === 'partial',
                   ).length
                 }
               </Badge>
@@ -595,6 +603,7 @@ export default function CTeList() {
                       const hasWarnings =
                         t.consistencyWarnings &&
                         t.consistencyWarnings.length > 0
+                      const isPartial = t.importStatus === 'partial'
                       const AlertIcon = alert?.icon
                       const isStandard = t.id === standardCteId
 
@@ -610,7 +619,7 @@ export default function CTeList() {
                             />
                           </TableCell>
                           <TableCell>
-                            {(alert || hasWarnings) &&
+                            {(alert || hasWarnings || isPartial) &&
                               !t.validationBypassed && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -618,7 +627,9 @@ export default function CTeList() {
                                       variant="ghost"
                                       className="h-6 w-6 p-0 hover:bg-transparent"
                                     >
-                                      {hasWarnings ? (
+                                      {isPartial ? (
+                                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                      ) : hasWarnings ? (
                                         <AlertOctagon className="h-4 w-4 text-amber-600" />
                                       ) : (
                                         AlertIcon && (
@@ -630,7 +641,18 @@ export default function CTeList() {
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    {hasWarnings ? (
+                                    {isPartial ? (
+                                      <div className="flex flex-col gap-1">
+                                        <p className="font-semibold">
+                                          Dados Parciais
+                                        </p>
+                                        <p className="text-xs">
+                                          Tags ausentes:{' '}
+                                          {t.missingTags?.join(', ') ||
+                                            'Desconhecido'}
+                                        </p>
+                                      </div>
+                                    ) : hasWarnings ? (
                                       <ul className="list-disc pl-4 text-xs">
                                         {t.consistencyWarnings?.map((w, i) => (
                                           <li key={i}>{w}</li>
@@ -700,18 +722,27 @@ export default function CTeList() {
                                   <ShieldOff className="h-3 w-3" /> Manual
                                 </Badge>
                               )}
-                              <Badge
-                                variant="outline"
-                                className={
-                                  t.status === 'approved'
-                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                                }
-                              >
-                                {t.status === 'approved'
-                                  ? 'Autorizado'
-                                  : 'Pendente'}
-                              </Badge>
+                              {t.importStatus === 'partial' ? (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-100 text-amber-700 border-amber-200"
+                                >
+                                  Parcial
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    t.status === 'approved'
+                                      ? 'bg-green-50 text-green-700 border-green-200'
+                                      : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                  }
+                                >
+                                  {t.status === 'approved'
+                                    ? 'Autorizado'
+                                    : 'Pendente'}
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -752,7 +783,21 @@ export default function CTeList() {
                               >
                                 <Paperclip className="h-4 w-4 text-blue-600" />
                               </Button>
+
+                              {t.importStatus === 'partial' && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => openEditDialog(t)}
+                                  title="Completar Dados"
+                                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                >
+                                  <PenLine className="h-4 w-4" />
+                                </Button>
+                              )}
+
                               {t.status === 'pending' &&
+                              t.importStatus !== 'partial' &&
                               userRole === 'admin' ? (
                                 <Button
                                   variant="ghost"
@@ -763,7 +808,9 @@ export default function CTeList() {
                                 >
                                   <CheckCircle className="h-4 w-4" />
                                 </Button>
-                              ) : (
+                              ) : null}
+
+                              {!t.importStatus && t.status !== 'pending' && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -773,6 +820,7 @@ export default function CTeList() {
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                               )}
+
                               {userRole === 'admin' && (
                                 <Button
                                   variant="ghost"

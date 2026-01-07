@@ -27,7 +27,6 @@ import {
   XCircle,
   HelpCircle,
   Download,
-  Settings2,
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { parseFiscalXml, ParsedFiscalDoc } from '@/lib/xml-parser'
@@ -37,7 +36,7 @@ import { toast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { useErpStore } from '@/stores/useErpStore'
+import { useErpStore, ImportBatchLog } from '@/stores/useErpStore'
 import {
   Tooltip,
   TooltipContent,
@@ -63,10 +62,13 @@ interface XmlImportDialogProps {
 
 type UploadStatus = 'idle' | 'processing' | 'complete' | 'error'
 
-interface ErrorItem {
+interface ProcessedFile {
+  status: 'success' | 'partial' | 'error'
+  item?: ParsedFiscalDoc
   fileName: string
-  error: string
-  suggestion: string
+  error?: string
+  suggestion?: string
+  missingTags?: string[]
 }
 
 export function XmlImportDialog({
@@ -86,9 +88,10 @@ export function XmlImportDialog({
   const [progress, setProgress] = useState(0)
   const [processedCount, setProcessedCount] = useState(0)
   const [successCount, setSuccessCount] = useState(0)
+  const [partialCount, setPartialCount] = useState(0)
   const [failureCount, setFailureCount] = useState(0)
   const [totalFiles, setTotalFiles] = useState(0)
-  const [errorLog, setErrorLog] = useState<ErrorItem[]>([])
+  const [processedFiles, setProcessedFiles] = useState<ProcessedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'valid' | 'errors'>('valid')
 
@@ -122,18 +125,19 @@ export function XmlImportDialog({
       setProgress(0)
       setProcessedCount(0)
       setSuccessCount(0)
+      setPartialCount(0)
       setFailureCount(0)
-      setErrorLog([])
+      setProcessedFiles([])
       setItems([])
     }
 
     const CHUNK_SIZE = 10
     const newItems: ParsedFiscalDoc[] = []
-    const newErrors: ErrorItem[] = []
+    const newProcessed: ProcessedFile[] = []
 
     const processChunk = async (chunk: File[]) => {
       const results = await Promise.all(
-        chunk.map(async (file) => {
+        chunk.map(async (file): Promise<ProcessedFile> => {
           try {
             if (file.type !== 'text/xml' && !file.name.endsWith('.xml')) {
               throw new Error('Formato de arquivo inválido. Apenas XML.')
@@ -153,11 +157,32 @@ export function XmlImportDialog({
               item.type = 'expense'
             } else {
               item.type = 'expense'
-              item.category = 'Outros' // Fallback for 'Other'
+              item.category = 'Outros'
             }
 
             calculateTaxesIfNeeded(item)
             validateConsistency(item)
+
+            // Check Required Tags logic
+            let isPartial = false
+            const missing = item.missingTags || []
+            const criticalMissing: string[] = []
+
+            missing.forEach((tag) => {
+              // @ts-expect-error
+              const config = validationSettings.xmlTags[tag]
+              if (config === 'mandatory') {
+                criticalMissing.push(tag)
+              } else {
+                isPartial = true
+              }
+            })
+
+            if (criticalMissing.length > 0 && validateSchema) {
+              throw new Error(
+                `Tags obrigatórias ausentes: ${criticalMissing.join(', ')}`,
+              )
+            }
 
             if (validateSchema) {
               const validation = validateCte(
@@ -166,42 +191,48 @@ export function XmlImportDialog({
                 conditionalRules,
               )
               if (!validation.isValid) {
-                // If strict validation is on and it fails, we throw to log as error
                 throw new Error(
                   `Falha na validação de esquema: ${validation.errors.join(', ')}`,
                 )
               }
-            } else {
-              // Flexible import: ignore validation errors, just add warnings if any
-              // We already called validateConsistency which populates consistencyWarnings
-              if (
-                item.consistencyWarnings &&
-                item.consistencyWarnings.length > 0
-              ) {
-                item.status = 'pending'
-              } else {
-                item.status = 'approved'
-              }
             }
 
-            return { status: 'success' as const, item }
+            if (isPartial) {
+              item.importStatus = 'partial'
+              item.status = 'pending' // Force pending for review
+              item.consistencyWarnings = [
+                ...(item.consistencyWarnings || []),
+                `Dados parciais: tags ausentes (${missing.join(', ')})`,
+              ]
+            } else if (
+              item.consistencyWarnings &&
+              item.consistencyWarnings.length > 0
+            ) {
+              item.status = 'pending'
+              item.importStatus = 'complete'
+            } else {
+              item.status = 'approved'
+              item.importStatus = 'complete'
+            }
+
+            return {
+              status: isPartial ? 'partial' : 'success',
+              item,
+              fileName: file.name,
+              missingTags: missing,
+            }
           } catch (err: any) {
             let suggestion = 'Verifique a estrutura do XML.'
             const msg = err.message || 'Erro desconhecido'
 
             if (msg.includes('duplicado'))
+              suggestion = 'Verifique se o CT-e já não existe.'
+            if (msg.includes('Tags obrigatórias'))
               suggestion =
-                'Verifique se este CT-e já não foi importado anteriormente.'
-            if (msg.includes('inválido'))
-              suggestion = 'Remova arquivos que não sejam XML.'
-            if (msg.includes('Número'))
-              suggestion = 'O XML pode estar corrompido ou incompleto.'
-            if (msg.includes('esquema'))
-              suggestion =
-                'Corrija os campos obrigatórios ou desative a validação.'
+                'Ajuste a configuração de validação para tornar essas tags opcionais.'
 
             return {
-              status: 'error' as const,
+              status: 'error',
               fileName: file.name,
               error: msg,
               suggestion,
@@ -219,15 +250,14 @@ export function XmlImportDialog({
       const results = await processChunk(chunk)
 
       results.forEach((res) => {
+        newProcessed.push(res)
         if (res.status === 'success') {
-          newItems.push(res.item)
+          if (res.item) newItems.push(res.item)
           setSuccessCount((prev) => prev + 1)
+        } else if (res.status === 'partial') {
+          if (res.item) newItems.push(res.item)
+          setPartialCount((prev) => prev + 1)
         } else {
-          newErrors.push({
-            fileName: res.fileName,
-            error: res.error,
-            suggestion: res.suggestion,
-          })
           setFailureCount((prev) => prev + 1)
         }
       })
@@ -239,10 +269,11 @@ export function XmlImportDialog({
     }
 
     setItems((prev) => [...prev, ...newItems])
-    setErrorLog((prev) => [...prev, ...newErrors])
+    setProcessedFiles((prev) => [...prev, ...newProcessed])
     setUploadStatus('complete')
 
-    if (newErrors.length > 0) {
+    const hasErrors = newProcessed.some((p) => p.status === 'error')
+    if (hasErrors) {
       setActiveTab('errors')
     } else {
       setActiveTab('valid')
@@ -268,7 +299,7 @@ export function XmlImportDialog({
       })
       return
     }
-    const append = items.length > 0 || errorLog.length > 0
+    const append = items.length > 0 || processedFiles.length > 0
     processFiles(files, append)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -288,7 +319,7 @@ export function XmlImportDialog({
         })
         return
       }
-      const append = items.length > 0 || errorLog.length > 0
+      const append = items.length > 0 || processedFiles.length > 0
       processFiles(files, append)
     }
   }
@@ -313,11 +344,9 @@ export function XmlImportDialog({
 
   const validateConsistency = (item: ParsedFiscalDoc) => {
     const warnings: string[] = []
-
     if (item.cteNumber === 'SEM NUMERO') {
       warnings.push('Número do documento não encontrado.')
     }
-
     if (item.type === 'revenue' && item.providerCnpj) {
       const knownIssuer = companies.some((c) => {
         const cCnpj = c.cnpj.replace(/\D/g, '')
@@ -328,27 +357,23 @@ export function XmlImportDialog({
         warnings.push('Emitente não reconhecido na base de empresas.')
       }
     }
-
     const result = validateCte(item, validationSettings, conditionalRules)
-    // We already checked for blocking errors in processFiles loop if validateSchema is true
-    // Here we just attach warnings, and also errors if we are in flexible mode (so user sees them as warnings)
     if (!validateSchema) {
       result.errors.forEach((e) => warnings.push(e))
     }
-
     result.warnings.forEach((w) => warnings.push(w))
-
     item.consistencyWarnings = warnings
-    if (warnings.length > 0) {
-      item.status = 'pending'
-    }
   }
 
+  const errorFiles = processedFiles.filter((p) => p.status === 'error')
+
   const handleDownloadLog = () => {
-    if (errorLog.length === 0) return
+    if (errorFiles.length === 0) return
     const content =
       'Arquivo;Erro;Sugestão\n' +
-      errorLog.map((e) => `${e.fileName};${e.error};${e.suggestion}`).join('\n')
+      errorFiles
+        .map((e) => `${e.fileName};${e.error};${e.suggestion}`)
+        .join('\n')
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -361,15 +386,31 @@ export function XmlImportDialog({
   }
 
   const handleConfirm = () => {
+    // Generate Logs for Batch
+    const logs: ImportBatchLog[] = processedFiles.map((p) => ({
+      fileName: p.fileName,
+      status:
+        p.status === 'success'
+          ? 'Success'
+          : p.status === 'partial'
+            ? 'Partial'
+            : 'Error',
+      details: p.error
+        ? [p.error]
+        : p.missingTags && p.missingTags.length > 0
+          ? [`Tags ausentes: ${p.missingTags.join(', ')}`]
+          : [],
+    }))
+
     addTransactions(items, {
       category: importCategory,
-      errorLog: errorLog,
+      logs: logs,
       totalFiles: totalFiles,
     })
 
     toast({
       title: 'Importação Concluída',
-      description: `${items.length} documentos importados com sucesso.`,
+      description: `${items.length} documentos importados.`,
     })
 
     handleClose()
@@ -383,21 +424,20 @@ export function XmlImportDialog({
       if (!confirmCancel) return
     }
     setItems([])
-    setErrorLog([])
+    setProcessedFiles([])
     setUploadStatus('idle')
     setTotalFiles(0)
     setProcessedCount(0)
     setSuccessCount(0)
+    setPartialCount(0)
     setFailureCount(0)
     onOpenChange(false)
   }
 
   const clearErrors = () => {
-    setErrorLog([])
+    setProcessedFiles((prev) => prev.filter((p) => p.status !== 'error'))
     setFailureCount(0)
-    setTotalFiles(items.length)
-    setProcessedCount(items.length)
-    if (items.length > 0) setActiveTab('valid')
+    setActiveTab('valid')
   }
 
   return (
@@ -410,7 +450,7 @@ export function XmlImportDialog({
                 <span>Importação em Massa (XML)</span>
                 {uploadStatus !== 'idle' && (
                   <span className="text-sm font-normal text-muted-foreground">
-                    {processedCount} / {totalFiles} processados
+                    {processedCount} / {totalFiles}
                   </span>
                 )}
               </DialogTitle>
@@ -419,7 +459,6 @@ export function XmlImportDialog({
               </DialogDescription>
             </div>
 
-            {/* Import Settings */}
             <div className="flex gap-4 items-center bg-muted/30 p-2 rounded-lg border">
               <div className="flex items-center space-x-2">
                 <Switch
@@ -467,7 +506,10 @@ export function XmlImportDialog({
               <Progress value={progress} className="h-2" />
               <div className="flex gap-4 text-xs text-muted-foreground justify-center">
                 <span className="text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> {successCount} Sucessos
+                  <CheckCircle2 className="h-3 w-3" /> {successCount} Completos
+                </span>
+                <span className="text-amber-600 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" /> {partialCount} Parciais
                 </span>
                 <span className="text-rose-600 flex items-center gap-1">
                   <XCircle className="h-3 w-3" /> {failureCount} Falhas
@@ -476,9 +518,7 @@ export function XmlImportDialog({
             </div>
           )}
 
-          {uploadStatus === 'idle' &&
-          items.length === 0 &&
-          errorLog.length === 0 ? (
+          {uploadStatus === 'idle' && items.length === 0 && !hasErrors ? (
             <div
               className="border-2 border-dashed rounded-lg flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
               onClick={() => fileInputRef.current?.click()}
@@ -524,9 +564,9 @@ export function XmlImportDialog({
                         className="gap-2 text-destructive data-[state=active]:text-destructive"
                       >
                         <AlertTriangle className="h-4 w-4" /> Erros
-                        {errorLog.length > 0 && (
+                        {errorFiles.length > 0 && (
                           <Badge variant="destructive" className="ml-1">
-                            {errorLog.length}
+                            {errorFiles.length}
                           </Badge>
                         )}
                       </TabsTrigger>
@@ -540,7 +580,7 @@ export function XmlImportDialog({
                       >
                         <FileUp className="mr-2 h-4 w-4" /> Adicionar Mais
                       </Button>
-                      {errorLog.length > 0 && (
+                      {errorFiles.length > 0 && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -583,8 +623,15 @@ export function XmlImportDialog({
                                 {formatCurrency(item.value)}
                               </TableCell>
                               <TableCell className="text-center">
-                                {item.consistencyWarnings &&
-                                item.consistencyWarnings.length > 0 ? (
+                                {item.importStatus === 'partial' ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-amber-100 text-amber-800 border-amber-200"
+                                  >
+                                    Parcial
+                                  </Badge>
+                                ) : item.consistencyWarnings &&
+                                  item.consistencyWarnings.length > 0 ? (
                                   <Tooltip>
                                     <TooltipTrigger>
                                       <Badge
@@ -610,7 +657,7 @@ export function XmlImportDialog({
                                     variant="outline"
                                     className="bg-green-50 text-green-700 border-green-200"
                                   >
-                                    OK
+                                    Completo
                                   </Badge>
                                 )}
                               </TableCell>
@@ -653,7 +700,7 @@ export function XmlImportDialog({
                         <AlertTriangle className="h-4 w-4" />
                         <AlertTitle>Arquivos Falharam</AlertTitle>
                         <AlertDescription>
-                          {errorLog.length} arquivos não puderam ser
+                          {errorFiles.length} arquivos não puderam ser
                           processados.
                           <Button
                             variant="link"
@@ -679,17 +726,17 @@ export function XmlImportDialog({
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {errorLog.map((err, i) => (
+                            {errorFiles.map((p, i) => (
                               <TableRow key={i} className="hover:bg-red-50">
                                 <TableCell className="font-medium text-xs break-all">
-                                  {err.fileName}
+                                  {p.fileName}
                                 </TableCell>
                                 <TableCell className="text-xs text-red-600 font-semibold">
-                                  {err.error}
+                                  {p.error}
                                 </TableCell>
                                 <TableCell className="text-xs flex items-center gap-2 text-muted-foreground">
                                   <HelpCircle className="h-3 w-3" />
-                                  {err.suggestion}
+                                  {p.suggestion}
                                 </TableCell>
                               </TableRow>
                             ))}
