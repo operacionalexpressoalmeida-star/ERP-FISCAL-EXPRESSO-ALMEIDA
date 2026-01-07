@@ -272,8 +272,8 @@ export function XmlImportDialog({
     setProcessedFiles((prev) => [...prev, ...newProcessed])
     setUploadStatus('complete')
 
-    const hasErrors = newProcessed.some((p) => p.status === 'error')
-    if (hasErrors) {
+    const processingHasErrors = newProcessed.some((p) => p.status === 'error')
+    if (processingHasErrors) {
       setActiveTab('errors')
     } else {
       setActiveTab('valid')
@@ -366,6 +366,8 @@ export function XmlImportDialog({
   }
 
   const errorFiles = processedFiles.filter((p) => p.status === 'error')
+  // Fix: Define hasErrors in the component scope to be used in JSX
+  const hasErrors = errorFiles.length > 0
 
   const handleDownloadLog = () => {
     if (errorFiles.length === 0) return
