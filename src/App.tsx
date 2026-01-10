@@ -32,6 +32,11 @@ import CategorizationRules from './pages/admin/CategorizationRules'
 import ConditionalValidationRules from './pages/admin/ConditionalValidationRules'
 import CteTaxReport from './pages/reports/CteTaxReport'
 
+// Sports Module
+import SportsDashboard from './pages/sports/SportsDashboard'
+import TeamManagement from './pages/sports/TeamManagement'
+import MatchAnalysis from './pages/sports/MatchAnalysis'
+
 const App = () => (
   <BrowserRouter
     future={{ v7_startTransition: false, v7_relativeSplatPath: false }}
@@ -87,6 +92,11 @@ const App = () => (
               path="/reports/freight-dashboard"
               element={<FreightDashboard />}
             />
+
+            {/* Sports Module Routes */}
+            <Route path="/sports" element={<SportsDashboard />} />
+            <Route path="/sports/teams" element={<TeamManagement />} />
+            <Route path="/sports/match" element={<MatchAnalysis />} />
 
             {/* Admin Only Routes */}
             <Route element={<ProtectedRoute allowedRoles={['admin']} />}>

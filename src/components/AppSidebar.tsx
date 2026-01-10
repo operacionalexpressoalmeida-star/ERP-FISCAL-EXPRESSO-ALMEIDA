@@ -33,6 +33,7 @@ import {
   Files,
   Activity,
   Sliders,
+  Trophy,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -188,6 +189,26 @@ export function AppSidebar() {
                   <Link to="/financial/reconciliation">
                     <Landmark />
                     <span>Conciliação Bancária</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Sports Analytics Module */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Sports Analytics</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname.startsWith('/sports')}
+                >
+                  <Link to="/sports">
+                    <Trophy />
+                    <span>Estatísticas</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
